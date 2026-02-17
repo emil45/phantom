@@ -79,15 +79,9 @@ final class QUICClient {
             return
         }
 
-        let endpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: port)!
-        )
-
-        group.extract(connectionTo: endpoint, using: nil) { [weak self] stream in
-            stream.start(queue: self?.queue ?? .main)
-            completion(stream)
-        }
+        let stream = NWConnection(from: group)
+        stream?.start(queue: queue)
+        completion(stream)
     }
 
     func disconnect() {
@@ -183,11 +177,12 @@ extension NWConnection {
         let secMeta = tlsMeta.securityProtocolMetadata
 
         let result: Data? = label.withCString { labelPtr in
+            let labelLen = label.utf8.count
             if contextData.isEmpty {
                 // Use the version without context for empty context
                 guard let exported = sec_protocol_metadata_create_secret(
                     secMeta,
-                    label.count,
+                    labelLen,
                     labelPtr,
                     length
                 ) else { return nil }
@@ -196,7 +191,7 @@ extension NWConnection {
                 return contextData.withUnsafeBytes { contextBytes -> Data? in
                     guard let exported = sec_protocol_metadata_create_secret_with_context(
                         secMeta,
-                        label.count,
+                        labelLen,
                         labelPtr,
                         contextData.count,
                         contextBytes.baseAddress!.assumingMemoryBound(to: UInt8.self),

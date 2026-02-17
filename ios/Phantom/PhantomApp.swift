@@ -17,7 +17,7 @@ struct PhantomApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(reconnectManager: reconnectManager)
-                .onChange(of: scenePhase) { _, newPhase in
+                .onChange(of: scenePhase) { newPhase in
                     reconnectManager.handleScenePhase(newPhase)
                 }
         }

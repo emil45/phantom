@@ -1,6 +1,10 @@
 import Foundation
 import Compression
 
+// COMPRESSION_ZSTD is not exposed in the public Compression headers but is
+// supported at runtime on iOS 16+. Raw value matches the internal enum.
+private let COMPRESSION_ZSTD = compression_algorithm(rawValue: 0xB03)
+
 // MARK: - Constants
 
 let frameHeaderSize = 15
