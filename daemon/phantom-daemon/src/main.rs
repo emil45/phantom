@@ -1,14 +1,7 @@
-mod auth;
-mod bridge;
-mod config;
-mod device_store;
-mod server;
-mod session;
-mod tls;
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use config::{Cli, Command, DeviceAction};
+use phantom_daemon::config::{Cli, Command, DeviceAction};
+use phantom_daemon::{auth, device_store, server, session, tls};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::info;

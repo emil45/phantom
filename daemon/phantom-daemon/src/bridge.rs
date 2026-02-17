@@ -186,13 +186,22 @@ async fn run_bridge(
     )
     .await;
 
-    // On disconnect: restore reader, mark detached
-    // Note: the PTY reader is consumed by the blocking thread.
-    // We can't easily get it back. Mark the session as needing a new reader on reattach.
+    // On disconnect: clone a fresh reader from master, mark detached
     {
         let mut s = session.lock().expect("session lock");
         s.attached = false;
         s.bridge_cancel = None;
+        // Clone a new reader for future reattach
+        if s.reader.is_none() {
+            match s.master.try_clone_reader() {
+                Ok(reader) => {
+                    s.reader = Some(reader);
+                }
+                Err(e) => {
+                    warn!("failed to clone PTY reader on detach: {e}");
+                }
+            }
+        }
     }
 
     result

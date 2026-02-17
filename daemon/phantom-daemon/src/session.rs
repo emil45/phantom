@@ -69,29 +69,25 @@ impl ScrollbackBuffer {
         }
     }
 
-    /// Read scrollback data from the clean point.
+    /// Read all scrollback data from the buffer.
+    /// Returns the full ring buffer contents in order.
+    /// For v1, we send the entire buffer on reattach. The clean point
+    /// optimization (only replaying from the last safe terminal state)
+    /// is deferred — in practice the full buffer works fine since
+    /// SwiftTerm's parser handles partial escape sequences gracefully.
     pub fn read_from_clean_point(&self) -> Vec<u8> {
         if self.len == 0 {
             return Vec::new();
         }
 
-        // How far back from the end is the clean point?
-        let bytes_after_clean = self.len.saturating_sub(self.clean_point);
-        let start_offset = self.len - bytes_after_clean.min(self.len);
-        let bytes_to_read = self.len - start_offset;
-
-        if bytes_to_read == 0 {
-            return Vec::new();
-        }
-
-        let mut result = Vec::with_capacity(bytes_to_read);
+        let mut result = Vec::with_capacity(self.len);
         let read_start = if self.len < self.capacity {
-            start_offset
+            0
         } else {
-            (self.write_pos + start_offset) % self.capacity
+            self.write_pos
         };
 
-        for i in 0..bytes_to_read {
+        for i in 0..self.len {
             result.push(self.buf[(read_start + i) % self.capacity]);
         }
 

@@ -438,3 +438,98 @@ mod tests {
         assert_eq!(d2.payload, payload);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn arb_frame_type() -> impl Strategy<Value = FrameType> {
+        prop_oneof![
+            Just(FrameType::Data),
+            Just(FrameType::Resize),
+            Just(FrameType::Heartbeat),
+            Just(FrameType::Close),
+            Just(FrameType::Scrollback),
+            Just(FrameType::WindowUpdate),
+        ]
+    }
+
+    fn arb_frame() -> impl Strategy<Value = Frame> {
+        (arb_frame_type(), any::<u64>(), proptest::collection::vec(any::<u8>(), 0..4096))
+            .prop_map(|(ft, seq, payload)| Frame { frame_type: ft, sequence: seq, payload })
+    }
+
+    proptest! {
+        /// Any valid frame roundtrips through encode→decode without compression.
+        #[test]
+        fn roundtrip_uncompressed(frame in arb_frame()) {
+            let encoded = encode(&frame, false).unwrap();
+            let (decoded, consumed) = decode(&encoded).unwrap().unwrap();
+            prop_assert_eq!(consumed, encoded.len());
+            prop_assert_eq!(decoded, frame);
+        }
+
+        /// Any valid frame roundtrips through encode→decode with compression enabled.
+        #[test]
+        fn roundtrip_compressed(frame in arb_frame()) {
+            let encoded = encode(&frame, true).unwrap();
+            let (decoded, consumed) = decode(&encoded).unwrap().unwrap();
+            prop_assert_eq!(consumed, encoded.len());
+            prop_assert_eq!(decoded.frame_type, frame.frame_type);
+            prop_assert_eq!(decoded.sequence, frame.sequence);
+            prop_assert_eq!(decoded.payload, frame.payload);
+        }
+
+        /// Random bytes fed into the decoder never panic.
+        #[test]
+        fn decoder_no_panic_on_random_bytes(data in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let _ = decode(&data);
+        }
+
+        /// Streaming decoder handles chunked input correctly.
+        #[test]
+        fn streaming_decoder_chunked(
+            frames in proptest::collection::vec(arb_frame(), 1..8),
+            chunk_size in 1usize..128,
+        ) {
+            let mut all_bytes = Vec::new();
+            for f in &frames {
+                all_bytes.extend(encode(f, false).unwrap());
+            }
+
+            let mut decoder = FrameDecoder::new();
+            let mut decoded = Vec::new();
+
+            for chunk in all_bytes.chunks(chunk_size) {
+                decoder.feed(chunk);
+                while let Ok(Some(frame)) = decoder.decode_next() {
+                    decoded.push(frame);
+                }
+            }
+
+            prop_assert_eq!(decoded.len(), frames.len());
+            for (d, f) in decoded.iter().zip(frames.iter()) {
+                prop_assert_eq!(d, f);
+            }
+        }
+
+        /// Control message roundtrip with arbitrary JSON-ish payloads.
+        #[test]
+        fn control_message_roundtrip(data in proptest::collection::vec(any::<u8>(), 0..4096)) {
+            let encoded = control::encode_message(&data);
+            let (decoded, consumed) = control::decode_message(&encoded).unwrap();
+            prop_assert_eq!(decoded, data.as_slice());
+            prop_assert_eq!(consumed, encoded.len());
+        }
+
+        /// Sequence numbers survive roundtrip at boundary values.
+        #[test]
+        fn sequence_boundary(seq in prop_oneof![Just(0u64), Just(1u64), Just(u64::MAX), any::<u64>()]) {
+            let frame = Frame::data(seq, b"test".to_vec());
+            let encoded = encode(&frame, false).unwrap();
+            let (decoded, _) = decode(&encoded).unwrap().unwrap();
+            prop_assert_eq!(decoded.sequence, seq);
+        }
+    }
+}
