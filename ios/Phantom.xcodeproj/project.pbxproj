@@ -1,0 +1,383 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000010000000000000001 /* PhantomApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000001 /* PhantomApp.swift */; };
+		A10000010000000000000002 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000002 /* ConnectionState.swift */; };
+		A10000010000000000000003 /* QUICClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000003 /* QUICClient.swift */; };
+		A10000010000000000000004 /* ReconnectManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000004 /* ReconnectManager.swift */; };
+		A10000010000000000000005 /* TerminalContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000005 /* TerminalContainerView.swift */; };
+		A10000010000000000000006 /* TerminalDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000006 /* TerminalDataSource.swift */; };
+		A10000010000000000000007 /* TerminalScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000007 /* TerminalScreen.swift */; };
+		A10000010000000000000008 /* FrameCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000008 /* FrameCodec.swift */; };
+		A10000010000000000000009 /* ControlChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000009 /* ControlChannel.swift */; };
+		A10000010000000000000011 /* KeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000011 /* KeyManager.swift */; };
+		A10000010000000000000012 /* PairingPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000012 /* PairingPayload.swift */; };
+		A10000010000000000000013 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000013 /* PairingView.swift */; };
+		A10000010000000000000014 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000014 /* SessionListView.swift */; };
+		A10000010000000000000015 /* DeviceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000015 /* DeviceStore.swift */; };
+		A10000010000000000000020 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A10000030000000000000020 /* SwiftTerm */; };
+		A10000010000000000000021 /* CodeScanner in Frameworks */ = {isa = PBXBuildFile; productRef = A10000030000000000000021 /* CodeScanner */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000020000000000000001 /* PhantomApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhantomApp.swift; sourceTree = "<group>"; };
+		A10000020000000000000002 /* ConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionState.swift; sourceTree = "<group>"; };
+		A10000020000000000000003 /* QUICClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QUICClient.swift; sourceTree = "<group>"; };
+		A10000020000000000000004 /* ReconnectManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconnectManager.swift; sourceTree = "<group>"; };
+		A10000020000000000000005 /* TerminalContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalContainerView.swift; sourceTree = "<group>"; };
+		A10000020000000000000006 /* TerminalDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalDataSource.swift; sourceTree = "<group>"; };
+		A10000020000000000000007 /* TerminalScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScreen.swift; sourceTree = "<group>"; };
+		A10000020000000000000008 /* FrameCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameCodec.swift; sourceTree = "<group>"; };
+		A10000020000000000000009 /* ControlChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlChannel.swift; sourceTree = "<group>"; };
+		A10000020000000000000010 /* Phantom.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Phantom.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000020000000000000011 /* KeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyManager.swift; sourceTree = "<group>"; };
+		A10000020000000000000012 /* PairingPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingPayload.swift; sourceTree = "<group>"; };
+		A10000020000000000000013 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		A10000020000000000000014 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
+		A10000020000000000000015 /* DeviceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceStore.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000040000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000020 /* SwiftTerm in Frameworks */,
+				A10000010000000000000021 /* CodeScanner in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000050000000000000001 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				A10000050000000000000002 /* Phantom */,
+				A10000050000000000000010 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000050000000000000002 /* Phantom */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000001 /* PhantomApp.swift */,
+				A10000050000000000000003 /* Models */,
+				A10000050000000000000007 /* Crypto */,
+				A10000050000000000000004 /* Network */,
+				A10000050000000000000005 /* Terminal */,
+				A10000050000000000000006 /* Views */,
+				A10000050000000000000008 /* Storage */,
+			);
+			path = Phantom;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000002 /* ConnectionState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000004 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000003 /* QUICClient.swift */,
+				A10000020000000000000004 /* ReconnectManager.swift */,
+				A10000020000000000000008 /* FrameCodec.swift */,
+				A10000020000000000000009 /* ControlChannel.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000005 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000005 /* TerminalContainerView.swift */,
+				A10000020000000000000006 /* TerminalDataSource.swift */,
+			);
+			path = Terminal;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000006 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000007 /* TerminalScreen.swift */,
+				A10000020000000000000013 /* PairingView.swift */,
+				A10000020000000000000014 /* SessionListView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000007 /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000011 /* KeyManager.swift */,
+				A10000020000000000000012 /* PairingPayload.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000008 /* Storage */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000015 /* DeviceStore.swift */,
+			);
+			path = Storage;
+			sourceTree = "<group>";
+		};
+		A10000050000000000000010 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000020000000000000010 /* Phantom.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000060000000000000001 /* Phantom */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000080000000000000001 /* Build configuration list for PBXNativeTarget "Phantom" */;
+			buildPhases = (
+				A10000070000000000000001 /* Sources */,
+				A10000040000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Phantom;
+			packageProductDependencies = (
+				A10000030000000000000020 /* SwiftTerm */,
+				A10000030000000000000021 /* CodeScanner */,
+			);
+			productName = Phantom;
+			productReference = A10000020000000000000010 /* Phantom.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000090000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = A10000080000000000000002 /* Build configuration list for PBXProject "Phantom" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000050000000000000001 /* Root */;
+			packageReferences = (
+				A100000A0000000000000020 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				A100000A0000000000000021 /* XCRemoteSwiftPackageReference "CodeScanner" */,
+			);
+			productRefGroup = A10000050000000000000010 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000060000000000000001 /* Phantom */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000070000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000010000000000000001 /* PhantomApp.swift in Sources */,
+				A10000010000000000000002 /* ConnectionState.swift in Sources */,
+				A10000010000000000000003 /* QUICClient.swift in Sources */,
+				A10000010000000000000004 /* ReconnectManager.swift in Sources */,
+				A10000010000000000000005 /* TerminalContainerView.swift in Sources */,
+				A10000010000000000000006 /* TerminalDataSource.swift in Sources */,
+				A10000010000000000000007 /* TerminalScreen.swift in Sources */,
+				A10000010000000000000008 /* FrameCodec.swift in Sources */,
+				A10000010000000000000009 /* ControlChannel.swift in Sources */,
+				A10000010000000000000011 /* KeyManager.swift in Sources */,
+				A10000010000000000000012 /* PairingPayload.swift in Sources */,
+				A10000010000000000000013 /* PairingView.swift in Sources */,
+				A10000010000000000000014 /* SessionListView.swift in Sources */,
+				A10000010000000000000015 /* DeviceStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A100000B0000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_KEY_CFBundleDisplayName = Phantom;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Phantom needs camera access to scan the pairing QR code from your Mac.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.phantom.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A100000B0000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_KEY_CFBundleDisplayName = Phantom;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Phantom needs camera access to scan the pairing QR code from your Mac.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.phantom.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A100000B0000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A100000B0000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000080000000000000001 /* Build configuration list for PBXNativeTarget "Phantom" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000B0000000000000001 /* Debug */,
+				A100000B0000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000080000000000000002 /* Build configuration list for PBXProject "Phantom" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000B0000000000000003 /* Debug */,
+				A100000B0000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A100000A0000000000000020 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		A100000A0000000000000021 /* XCRemoteSwiftPackageReference "CodeScanner" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/twostraws/CodeScanner.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000030000000000000020 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000A0000000000000020 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+		A10000030000000000000021 /* CodeScanner */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000A0000000000000021 /* XCRemoteSwiftPackageReference "CodeScanner" */;
+			productName = CodeScanner;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+	};
+	rootObject = A10000090000000000000001 /* Project object */;
+}

@@ -1,0 +1,11 @@
+[package]
+name = "phantom-frame"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zstd = "0.13"
+thiserror = "2"
+
+[dev-dependencies]
+proptest = "1"

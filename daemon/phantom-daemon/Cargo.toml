@@ -1,0 +1,34 @@
+[package]
+name = "phantom-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "phantom"
+path = "src/main.rs"
+
+[dependencies]
+phantom-frame = { path = "../phantom-frame" }
+quinn = "0.11"
+rustls = { version = "0.23", features = ["ring"] }
+rcgen = "0.13"
+portable-pty = "0.9"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+p256 = { version = "0.13", features = ["ecdsa"] }
+clap = { version = "4", features = ["derive"] }
+qr2term = "0.3"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+hex = "0.4"
+libc = "0.2"
+tokio-util = "0.7"
+
+[dev-dependencies]

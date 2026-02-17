@@ -1,0 +1,3 @@
+[workspace]
+members = ["phantom-daemon", "phantom-frame"]
+resolver = "2"

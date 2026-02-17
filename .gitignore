@@ -1,0 +1,19 @@
+# Rust
+daemon/target/
+**/*.rs.bk
+
+# Xcode
+ios/build/
+ios/DerivedData/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios/*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/
+*.playground/
+
+# macOS
+.DS_Store
+
+# Phantom data
+.phantom/
