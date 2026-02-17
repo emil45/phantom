@@ -4,7 +4,7 @@ use phantom_daemon::config::{Cli, Command, DeviceAction};
 use phantom_daemon::{auth, device_store, server, session, tls};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,6 +56,11 @@ async fn run_daemon(bind: std::net::SocketAddr) -> Result<()> {
     let endpoint = quinn::Endpoint::server(server_config, bind)
         .context("bind QUIC endpoint")?;
 
+    // Warn if listening on all interfaces
+    if bind.ip().is_unspecified() {
+        warn!("listening on all interfaces ({bind}) — ensure firewall is configured");
+    }
+
     let phantom_dir = dirs::home_dir()
         .context("home dir")?
         .join(".phantom");
@@ -67,6 +72,10 @@ async fn run_daemon(bind: std::net::SocketAddr) -> Result<()> {
     );
 
     let authenticator = Arc::new(auth::Authenticator::new(device_store.clone()));
+
+    if device_store.list_devices().is_empty() {
+        warn!("no paired devices — run `phantom pair` to pair a device");
+    }
 
     let session_manager = Arc::new(session::SessionManager::new());
 

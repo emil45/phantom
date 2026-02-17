@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use quinn::{Connection, RecvStream, SendStream};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::device_store::DeviceStore;
 
@@ -71,6 +71,11 @@ impl Authenticator {
 
         let device_id = req.device_id.clone();
 
+        // Validate device_id format (prevent oversized or empty IDs)
+        if device_id.is_empty() || device_id.len() > 128 {
+            bail!("invalid device_id length: {}", device_id.len());
+        }
+
         // Check if this is a pairing request (has pairing_token + public_key)
         if let (Some(token), Some(pub_key), Some(name)) =
             (&req.pairing_token, &req.public_key, &req.device_name)
@@ -93,6 +98,8 @@ impl Authenticator {
                 write_control_message(&mut send, &resp).await?;
                 return Ok(device_id);
             } else {
+                warn!("invalid pairing attempt from {device_id}");
+                self.device_store.record_auth(&device_id, false);
                 let resp = AuthResult {
                     type_: "auth_response".to_string(),
                     request_id: req.request_id,
@@ -105,10 +112,21 @@ impl Authenticator {
         }
 
         // Challenge-response flow for already-paired devices
-        let stored_key = self
-            .device_store
-            .get_public_key(&device_id)
-            .context("device not found")?;
+        let stored_key = match self.device_store.get_public_key(&device_id) {
+            Ok(key) => key,
+            Err(_) => {
+                warn!("auth attempt from unknown device {device_id}");
+                self.device_store.record_auth(&device_id, false);
+                let resp = AuthResult {
+                    type_: "auth_response".to_string(),
+                    request_id: req.request_id,
+                    success: false,
+                    error: Some("device not paired".to_string()),
+                };
+                write_control_message(&mut send, &resp).await?;
+                bail!("unknown device {device_id}");
+            }
+        };
 
         // Send challenge
         let challenge_bytes: [u8; 32] = rand::Rng::gen(&mut rand::thread_rng());

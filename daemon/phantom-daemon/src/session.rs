@@ -330,3 +330,73 @@ fn uuid_short() -> String {
     let bytes: [u8; 8] = rng.gen();
     hex::encode(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollback_empty() {
+        let sb = ScrollbackBuffer::new(1024);
+        assert!(sb.read_from_clean_point().is_empty());
+    }
+
+    #[test]
+    fn scrollback_small_write() {
+        let mut sb = ScrollbackBuffer::new(1024);
+        sb.append(b"hello world");
+        let data = sb.read_from_clean_point();
+        assert_eq!(data, b"hello world");
+    }
+
+    #[test]
+    fn scrollback_wraps_at_capacity() {
+        let mut sb = ScrollbackBuffer::new(16);
+        // Write 20 bytes into 16-byte buffer
+        sb.append(b"AAAABBBBCCCCDDDDEEEE");
+        let data = sb.read_from_clean_point();
+        // Should contain only the last 16 bytes
+        assert_eq!(data.len(), 16);
+        assert_eq!(&data, b"BBBBCCCCDDDDEEEE");
+    }
+
+    #[test]
+    fn scrollback_bounded_under_sustained_output() {
+        let capacity = 65536;
+        let mut sb = ScrollbackBuffer::new(capacity);
+        // Write 1MB of data in chunks
+        let chunk = vec![b'X'; 4096];
+        for _ in 0..256 {
+            sb.append(&chunk);
+        }
+        let data = sb.read_from_clean_point();
+        assert_eq!(data.len(), capacity);
+        // All bytes should be 'X'
+        assert!(data.iter().all(|&b| b == b'X'));
+    }
+
+    #[test]
+    fn scrollback_preserves_order_after_wrap() {
+        let mut sb = ScrollbackBuffer::new(8);
+        sb.append(b"12345678"); // fills exactly
+        let data = sb.read_from_clean_point();
+        assert_eq!(&data, b"12345678");
+
+        // Now wrap
+        sb.append(b"ABCD");
+        let data = sb.read_from_clean_point();
+        assert_eq!(data.len(), 8);
+        assert_eq!(&data, b"5678ABCD");
+    }
+
+    #[test]
+    fn scrollback_multiple_wraps() {
+        let mut sb = ScrollbackBuffer::new(4);
+        sb.append(b"AABB");
+        sb.append(b"CCDD");
+        sb.append(b"EE");
+        let data = sb.read_from_clean_point();
+        assert_eq!(data.len(), 4);
+        assert_eq!(&data, b"DDEE");
+    }
+}

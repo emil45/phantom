@@ -9,9 +9,9 @@ use tracing::{error, info, warn};
 use crate::auth::Authenticator;
 use crate::session::SessionManager;
 
-/// Rate limiter: max N unauthenticated connections per IP per window.
+/// Rate limiter: max N events per IP per window.
 struct RateLimiter {
-    /// Map of IP → list of connection timestamps
+    /// Map of IP → list of event timestamps
     connections: Mutex<HashMap<IpAddr, Vec<Instant>>>,
     max_per_window: usize,
     window: Duration,
@@ -26,7 +26,7 @@ impl RateLimiter {
         }
     }
 
-    /// Returns true if the connection should be allowed.
+    /// Returns true if the event should be allowed.
     fn check(&self, ip: IpAddr) -> bool {
         let mut map = self.connections.lock().expect("rate limiter lock");
         let now = Instant::now();
@@ -42,6 +42,15 @@ impl RateLimiter {
             true
         }
     }
+
+    /// Record an event without checking limits (for tracking failures).
+    fn record(&self, ip: IpAddr) {
+        let mut map = self.connections.lock().expect("rate limiter lock");
+        let now = Instant::now();
+        let timestamps = map.entry(ip).or_default();
+        timestamps.retain(|t| now.duration_since(*t) < self.window);
+        timestamps.push(now);
+    }
 }
 
 /// Run the QUIC server accept loop.
@@ -50,7 +59,9 @@ pub async fn run(
     session_manager: Arc<SessionManager>,
     authenticator: Arc<Authenticator>,
 ) -> Result<()> {
-    let rate_limiter = RateLimiter::new(5, Duration::from_secs(60));
+    let rate_limiter = Arc::new(RateLimiter::new(5, Duration::from_secs(60)));
+    // Separate limiter for auth failures: max 3 failed auths per IP per 5 minutes
+    let auth_fail_limiter = Arc::new(RateLimiter::new(3, Duration::from_secs(300)));
 
     info!("accepting connections on {}", endpoint.local_addr()?);
 
@@ -64,11 +75,19 @@ pub async fn run(
             continue;
         }
 
+        // Check if this IP has too many auth failures
+        if !auth_fail_limiter.check(ip) {
+            warn!("auth-failure rate limited connection from {remote}");
+            incoming.refuse();
+            continue;
+        }
+
         let sm = session_manager.clone();
         let auth = authenticator.clone();
+        let fail_limiter = auth_fail_limiter.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(incoming, sm, auth).await {
+            if let Err(e) = handle_connection(incoming, sm, auth, fail_limiter).await {
                 error!("connection from {remote} failed: {e:#}");
             }
         });
@@ -81,6 +100,7 @@ async fn handle_connection(
     incoming: quinn::Incoming,
     session_manager: Arc<SessionManager>,
     authenticator: Arc<Authenticator>,
+    auth_fail_limiter: Arc<RateLimiter>,
 ) -> Result<()> {
     let connection = incoming
         .accept()
@@ -102,10 +122,17 @@ async fn handle_connection(
     .context("accept control stream")?;
 
     // Authenticate the connection
-    let device_id = authenticator
+    let device_id = match authenticator
         .handle_auth(&connection, control_send, control_recv)
         .await
-        .context("authentication")?;
+    {
+        Ok(id) => id,
+        Err(e) => {
+            // Record auth failure for rate limiting
+            auth_fail_limiter.record(remote.ip());
+            return Err(e).context("authentication");
+        }
+    };
 
     info!("authenticated device {device_id} from {remote}");
 
@@ -147,15 +174,86 @@ async fn handle_connection(
     Ok(())
 }
 
-// macOS sleep prevention via IOKit (full implementation deferred to Phase 5)
+// macOS sleep prevention via IOKit IOPMAssertion
 #[cfg(target_os = "macos")]
 mod sleep_prevention {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    // IOPMAssertionID
+    static ASSERTION_ID: AtomicU32 = AtomicU32::new(0);
+
+    // CoreFoundation and IOKit FFI
+    type CFStringRef = *const std::ffi::c_void;
+    type IOPMAssertionID = u32;
+
+    extern "C" {
+        fn CFStringCreateWithCString(
+            alloc: *const std::ffi::c_void,
+            c_str: *const std::ffi::c_char,
+            encoding: u32,
+        ) -> CFStringRef;
+        fn CFRelease(cf: *const std::ffi::c_void);
+        fn IOPMAssertionCreateWithName(
+            assertion_type: CFStringRef,
+            level: u32,
+            reason: CFStringRef,
+            assertion_id: *mut IOPMAssertionID,
+        ) -> i32;
+        fn IOPMAssertionRelease(assertion_id: IOPMAssertionID) -> i32;
+    }
+
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x08000100;
+    // kIOPMAssertionTypePreventUserIdleSystemSleep
+    const ASSERTION_TYPE: &[u8] = b"PreventUserIdleSystemSleep\0";
+    const REASON: &[u8] = b"Phantom daemon active\0";
+    // kIOPMAssertionLevelOn
+    const K_IOPM_ASSERTION_LEVEL_ON: u32 = 255;
+
     pub fn prevent_sleep() {
-        tracing::debug!("sleep prevention: IOPMAssertion deferred to Phase 5");
+        unsafe {
+            let assertion_type = CFStringCreateWithCString(
+                std::ptr::null(),
+                ASSERTION_TYPE.as_ptr() as *const std::ffi::c_char,
+                K_CF_STRING_ENCODING_UTF8,
+            );
+            let reason = CFStringCreateWithCString(
+                std::ptr::null(),
+                REASON.as_ptr() as *const std::ffi::c_char,
+                K_CF_STRING_ENCODING_UTF8,
+            );
+
+            let mut assertion_id: IOPMAssertionID = 0;
+            let result = IOPMAssertionCreateWithName(
+                assertion_type,
+                K_IOPM_ASSERTION_LEVEL_ON,
+                reason,
+                &mut assertion_id,
+            );
+
+            CFRelease(reason);
+            CFRelease(assertion_type);
+
+            if result == 0 {
+                ASSERTION_ID.store(assertion_id, Ordering::Relaxed);
+                tracing::info!("system sleep prevention enabled (IOPMAssertion {assertion_id})");
+            } else {
+                tracing::warn!("failed to create IOPMAssertion: error {result}");
+            }
+        }
     }
 
     pub fn allow_sleep() {
-        tracing::debug!("sleep prevention: IOPMAssertion release deferred to Phase 5");
+        let id = ASSERTION_ID.swap(0, Ordering::Relaxed);
+        if id != 0 {
+            unsafe {
+                let result = IOPMAssertionRelease(id);
+                if result == 0 {
+                    tracing::info!("system sleep prevention disabled");
+                } else {
+                    tracing::warn!("failed to release IOPMAssertion: error {result}");
+                }
+            }
+        }
     }
 }
 
