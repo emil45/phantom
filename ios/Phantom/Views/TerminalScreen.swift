@@ -62,7 +62,6 @@ struct TerminalScreen: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
-            .presentationBackground(.ultraThinMaterial)
             .environment(\.phantomColors, colors)
         }
         .sheet(isPresented: $showThemePicker) {

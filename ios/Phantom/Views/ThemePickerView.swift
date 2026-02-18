@@ -133,33 +133,33 @@ private struct ThemeCard: View {
                 // Simulated terminal lines with real-looking content
                 previewLine {
                     Text("$ ")
-                        .foregroundStyle(ansiColor(2))
+                        .foregroundColor(ansiColor(2))
                     + Text("ls -la")
-                        .foregroundStyle(Color(theme.foreground))
+                        .foregroundColor(Color(theme.foreground))
                 }
                 previewLine {
                     Text("drwxr-xr-x ")
-                        .foregroundStyle(Color(theme.foreground).opacity(0.7))
+                        .foregroundColor(Color(theme.foreground).opacity(0.7))
                     + Text("src/")
-                        .foregroundStyle(ansiColor(4))
+                        .foregroundColor(ansiColor(4))
                 }
                 previewLine {
                     Text("-rw-r--r-- ")
-                        .foregroundStyle(Color(theme.foreground).opacity(0.7))
+                        .foregroundColor(Color(theme.foreground).opacity(0.7))
                     + Text("main.rs")
-                        .foregroundStyle(Color(theme.foreground))
+                        .foregroundColor(Color(theme.foreground))
                 }
                 previewLine {
                     Text("$ ")
-                        .foregroundStyle(ansiColor(2))
+                        .foregroundColor(ansiColor(2))
                     + Text("git status")
-                        .foregroundStyle(Color(theme.foreground))
+                        .foregroundColor(Color(theme.foreground))
                 }
                 previewLine {
                     Text("On branch ")
-                        .foregroundStyle(Color(theme.foreground).opacity(0.7))
+                        .foregroundColor(Color(theme.foreground).opacity(0.7))
                     + Text("main")
-                        .foregroundStyle(ansiColor(3))
+                        .foregroundColor(ansiColor(3))
                 }
             }
             .padding(PhantomSpacing.xs)

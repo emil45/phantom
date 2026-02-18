@@ -200,7 +200,6 @@ struct PairingView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 56))
                     .foregroundStyle(colors.accent)
-                    .symbolEffect(.bounce, value: step == .success)
 
                 Text("Connected")
                     .font(PhantomFont.title)
