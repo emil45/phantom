@@ -22,6 +22,8 @@
 		A10000010000000000000014 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000014 /* SessionListView.swift */; };
 		A10000010000000000000015 /* DeviceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000015 /* DeviceStore.swift */; };
 		A10000010000000000000016 /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000016 /* Logging.swift */; };
+		A10000010000000000000017 /* TerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000017 /* TerminalTheme.swift */; };
+		A10000010000000000000018 /* ThemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000018 /* ThemePickerView.swift */; };
 		A10000010000000000000020 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A10000030000000000000020 /* SwiftTerm */; };
 		A10000010000000000000021 /* CodeScanner in Frameworks */ = {isa = PBXBuildFile; productRef = A10000030000000000000021 /* CodeScanner */; };
 /* End PBXBuildFile section */
@@ -43,6 +45,8 @@
 		A10000020000000000000014 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		A10000020000000000000015 /* DeviceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceStore.swift; sourceTree = "<group>"; };
 		A10000020000000000000016 /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
+		A10000020000000000000017 /* TerminalTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTheme.swift; sourceTree = "<group>"; };
+		A10000020000000000000018 /* ThemePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePickerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -105,6 +109,7 @@
 			children = (
 				A10000020000000000000005 /* TerminalContainerView.swift */,
 				A10000020000000000000006 /* TerminalDataSource.swift */,
+				A10000020000000000000017 /* TerminalTheme.swift */,
 			);
 			path = Terminal;
 			sourceTree = "<group>";
@@ -115,6 +120,7 @@
 				A10000020000000000000007 /* TerminalScreen.swift */,
 				A10000020000000000000013 /* PairingView.swift */,
 				A10000020000000000000014 /* SessionListView.swift */,
+				A10000020000000000000018 /* ThemePickerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -219,6 +225,8 @@
 				A10000010000000000000014 /* SessionListView.swift in Sources */,
 				A10000010000000000000015 /* DeviceStore.swift in Sources */,
 				A10000010000000000000016 /* Logging.swift in Sources */,
+				A10000010000000000000017 /* TerminalTheme.swift in Sources */,
+				A10000010000000000000018 /* ThemePickerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

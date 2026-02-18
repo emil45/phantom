@@ -9,15 +9,18 @@ import UIKit
 final class TerminalDataSource: NSObject, ObservableObject, TerminalViewDelegate {
     let terminalView: TerminalView
     weak var reconnectManager: ReconnectManager?
+    @Published var currentThemeId: String
 
     init(reconnectManager: ReconnectManager) {
+        let theme = TerminalTheme.saved
+        self.currentThemeId = theme.id
         self.terminalView = TerminalView(frame: .zero)
         self.reconnectManager = reconnectManager
         super.init()
 
         terminalView.terminalDelegate = self
-        terminalView.nativeBackgroundColor = .systemBackground
-        terminalView.nativeForegroundColor = .label
+        terminalView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
+        applyThemeColors(theme)
 
         // Wire incoming data frames to terminal
         reconnectManager.onTerminalData = { [weak self] data in
@@ -53,6 +56,24 @@ final class TerminalDataSource: NSObject, ObservableObject, TerminalViewDelegate
 
     nonisolated func clipboardCopy(source: TerminalView, content: Data) {
         UIPasteboard.general.setData(content, forPasteboardType: "public.utf8-plain-text")
+    }
+
+    /// Apply a terminal color theme, persist selection, and update UI.
+    func applyTheme(_ theme: TerminalTheme) {
+        applyThemeColors(theme)
+        TerminalTheme.save(theme)
+        currentThemeId = theme.id
+    }
+
+    private func applyThemeColors(_ theme: TerminalTheme) {
+        terminalView.nativeBackgroundColor = theme.background
+        terminalView.nativeForegroundColor = theme.foreground
+        terminalView.caretColor = theme.cursor
+        terminalView.selectedTextBackgroundColor = theme.selection
+        if let ansi = theme.ansiColors {
+            terminalView.installColors(ansi)
+        }
+        terminalView.overrideUserInterfaceStyle = theme.isDark ? .dark : .unspecified
     }
 
     /// Paste from system clipboard into terminal.

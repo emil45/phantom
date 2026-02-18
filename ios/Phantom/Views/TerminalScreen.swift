@@ -5,6 +5,7 @@ struct TerminalScreen: View {
     @ObservedObject var reconnectManager: ReconnectManager
     let dataSource: TerminalDataSource
     @State private var showControls = false
+    @State private var showThemePicker = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -70,6 +71,16 @@ struct TerminalScreen: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                     }
+                    Divider()
+                    Button {
+                        showThemePicker = true
+                        showControls = false
+                    } label: {
+                        Label("Theme", systemImage: "paintpalette")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                    }
                 }
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -77,6 +88,9 @@ struct TerminalScreen: View {
                 .offset(x: -8, y: 40)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
+        }
+        .sheet(isPresented: $showThemePicker) {
+            ThemePickerView(dataSource: dataSource)
         }
         .onTapGesture {
             if showControls { showControls = false }

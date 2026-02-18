@@ -1,0 +1,124 @@
+import SwiftTerm
+import UIKit
+
+/// Terminal color theme with ANSI palette and persistence.
+struct TerminalTheme: Identifiable {
+    let id: String
+    let name: String
+    let background: UIColor
+    let foreground: UIColor
+    let cursor: UIColor
+    let selection: UIColor
+    let isDark: Bool
+    let ansiColors: [SwiftTerm.Color]?
+
+    private static let key = "phantom.terminal.themeId"
+
+    static var saved: TerminalTheme {
+        let id = UserDefaults.standard.string(forKey: key) ?? "default"
+        return allThemes.first { $0.id == id } ?? defaultTheme
+    }
+
+    static func save(_ theme: TerminalTheme) {
+        UserDefaults.standard.set(theme.id, forKey: key)
+    }
+
+    // MARK: - Built-in Themes
+
+    static let allThemes: [TerminalTheme] = [
+        defaultTheme, dracula, solarizedDark, nord, oneDark,
+    ]
+
+    static let defaultTheme = TerminalTheme(
+        id: "default",
+        name: "Default",
+        background: .systemBackground,
+        foreground: .label,
+        cursor: .label,
+        selection: .systemGray3,
+        isDark: false,
+        ansiColors: nil
+    )
+
+    static let dracula = TerminalTheme(
+        id: "dracula",
+        name: "Dracula",
+        background: UIColor(red: 0x28, green: 0x2A, blue: 0x36),
+        foreground: UIColor(red: 0xF8, green: 0xF8, blue: 0xF2),
+        cursor: UIColor(red: 0xF8, green: 0xF8, blue: 0xF2),
+        selection: UIColor(red: 0x44, green: 0x47, blue: 0x5A),
+        isDark: true,
+        ansiColors: ansi(
+            (0x21, 0x22, 0x2C), (0xFF, 0x55, 0x55), (0x50, 0xFA, 0x7B), (0xF1, 0xFA, 0x8C),
+            (0xBD, 0x93, 0xF9), (0xFF, 0x79, 0xC6), (0x8B, 0xE9, 0xFD), (0xF8, 0xF8, 0xF2),
+            (0x62, 0x72, 0xA4), (0xFF, 0x6E, 0x6E), (0x69, 0xFF, 0x94), (0xFF, 0xFF, 0xA5),
+            (0xD6, 0xAC, 0xFF), (0xFF, 0x92, 0xDF), (0xA4, 0xFF, 0xFF), (0xFF, 0xFF, 0xFF)
+        )
+    )
+
+    static let solarizedDark = TerminalTheme(
+        id: "solarized-dark",
+        name: "Solarized Dark",
+        background: UIColor(red: 0x00, green: 0x2B, blue: 0x36),
+        foreground: UIColor(red: 0x83, green: 0x94, blue: 0x96),
+        cursor: UIColor(red: 0x83, green: 0x94, blue: 0x96),
+        selection: UIColor(red: 0x07, green: 0x36, blue: 0x42),
+        isDark: true,
+        ansiColors: ansi(
+            (0x07, 0x36, 0x42), (0xDC, 0x32, 0x2F), (0x85, 0x99, 0x00), (0xB5, 0x89, 0x00),
+            (0x26, 0x8B, 0xD2), (0xD3, 0x36, 0x82), (0x2A, 0xA1, 0x98), (0xEE, 0xE8, 0xD5),
+            (0x00, 0x2B, 0x36), (0xCB, 0x4B, 0x16), (0x58, 0x6E, 0x75), (0x65, 0x7B, 0x83),
+            (0x83, 0x94, 0x96), (0x6C, 0x71, 0xC4), (0x93, 0xA1, 0xA1), (0xFD, 0xF6, 0xE3)
+        )
+    )
+
+    static let nord = TerminalTheme(
+        id: "nord",
+        name: "Nord",
+        background: UIColor(red: 0x2E, green: 0x34, blue: 0x40),
+        foreground: UIColor(red: 0xD8, green: 0xDE, blue: 0xE9),
+        cursor: UIColor(red: 0xD8, green: 0xDE, blue: 0xE9),
+        selection: UIColor(red: 0x43, green: 0x4C, blue: 0x5E),
+        isDark: true,
+        ansiColors: ansi(
+            (0x3B, 0x42, 0x52), (0xBF, 0x61, 0x6A), (0xA3, 0xBE, 0x8C), (0xEB, 0xCB, 0x8B),
+            (0x81, 0xA1, 0xC1), (0xB4, 0x8E, 0xAD), (0x88, 0xC0, 0xD0), (0xE5, 0xE9, 0xF0),
+            (0x4C, 0x56, 0x6A), (0xBF, 0x61, 0x6A), (0xA3, 0xBE, 0x8C), (0xEB, 0xCB, 0x8B),
+            (0x81, 0xA1, 0xC1), (0xB4, 0x8E, 0xAD), (0x8F, 0xBC, 0xBB), (0xEC, 0xEF, 0xF4)
+        )
+    )
+
+    static let oneDark = TerminalTheme(
+        id: "one-dark",
+        name: "One Dark",
+        background: UIColor(red: 0x28, green: 0x2C, blue: 0x34),
+        foreground: UIColor(red: 0xAB, green: 0xB2, blue: 0xBF),
+        cursor: UIColor(red: 0x52, green: 0x8B, blue: 0xFF),
+        selection: UIColor(red: 0x3E, green: 0x44, blue: 0x51),
+        isDark: true,
+        ansiColors: ansi(
+            (0x3F, 0x44, 0x51), (0xE0, 0x6C, 0x75), (0x98, 0xC3, 0x79), (0xE5, 0xC0, 0x7B),
+            (0x61, 0xAF, 0xEF), (0xC6, 0x78, 0xDD), (0x56, 0xB6, 0xC2), (0xAB, 0xB2, 0xBF),
+            (0x5C, 0x63, 0x70), (0xE0, 0x6C, 0x75), (0x98, 0xC3, 0x79), (0xE5, 0xC0, 0x7B),
+            (0x61, 0xAF, 0xEF), (0xC6, 0x78, 0xDD), (0x56, 0xB6, 0xC2), (0xFF, 0xFF, 0xFF)
+        )
+    )
+
+    // MARK: - Helpers
+
+    /// Build 16 ANSI colors from 8-bit RGB tuples.
+    private static func ansi(_ c: (UInt8, UInt8, UInt8)...) -> [SwiftTerm.Color] {
+        c.map { SwiftTerm.Color(red: UInt16($0.0) * 257, green: UInt16($0.1) * 257, blue: UInt16($0.2) * 257) }
+    }
+}
+
+private extension UIColor {
+    convenience init(red: UInt8, green: UInt8, blue: UInt8) {
+        self.init(
+            red: CGFloat(red) / 255,
+            green: CGFloat(green) / 255,
+            blue: CGFloat(blue) / 255,
+            alpha: 1
+        )
+    }
+}
