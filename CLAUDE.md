@@ -27,4 +27,5 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 - Secure Enclave P256 keys for challenge-response auth
 - Self-signed cert with SHA-256 fingerprint pinning via pairing QR code
 - File-based pairing tokens at `~/.phantom/pairing_tokens.json` (shared between `phantom pair` and `phantom daemon` processes)
+- Optional TOML config at `~/.phantom/config.toml` (rate limits, reaper interval, bind address)
 - `TerminalDataSource` must be `@StateObject` in PhantomApp, not in views (SwiftUI recreation breaks terminal data pipeline)

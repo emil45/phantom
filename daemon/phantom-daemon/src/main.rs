@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use phantom_daemon::config::{Cli, Command, DeviceAction};
+use phantom_daemon::config::{Cli, Command, DaemonConfig, DeviceAction};
 use phantom_daemon::{auth, device_store, server, session, tls};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -23,11 +23,22 @@ async fn main() -> Result<()> {
 
     match cli.command {
         None | Some(Command::Daemon { .. }) => {
-            let bind = match &cli.command {
+            let phantom_dir = dirs::home_dir()
+                .context("home dir")?
+                .join(".phantom");
+            std::fs::create_dir_all(&phantom_dir)?;
+
+            let config = DaemonConfig::load(&phantom_dir);
+
+            let cli_bind = match &cli.command {
                 Some(Command::Daemon { bind }) => *bind,
-                _ => "[::]:4433".parse()?,
+                _ => None,
             };
-            run_daemon(bind).await
+            let bind = cli_bind
+                .or_else(|| config.bind.as_ref().and_then(|b| b.parse().ok()))
+                .unwrap_or_else(|| "[::]:4433".parse().unwrap());
+
+            run_daemon(bind, &phantom_dir, &config).await
         }
         Some(Command::RotateCert) => {
             tls::rotate_cert()?;
@@ -43,7 +54,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_daemon(bind: std::net::SocketAddr) -> Result<()> {
+async fn run_daemon(bind: std::net::SocketAddr, phantom_dir: &std::path::Path, config: &DaemonConfig) -> Result<()> {
     let (cert_der, key_der) = tls::load_or_generate()
         .context("load or generate TLS certificate")?;
 
@@ -56,18 +67,12 @@ async fn run_daemon(bind: std::net::SocketAddr) -> Result<()> {
     let endpoint = quinn::Endpoint::server(server_config, bind)
         .context("bind QUIC endpoint")?;
 
-    // Warn if listening on all interfaces
     if bind.ip().is_unspecified() {
         warn!("listening on all interfaces ({bind}) — ensure firewall is configured");
     }
 
-    let phantom_dir = dirs::home_dir()
-        .context("home dir")?
-        .join(".phantom");
-    std::fs::create_dir_all(&phantom_dir)?;
-
     let device_store = Arc::new(
-        device_store::DeviceStore::new(&phantom_dir)
+        device_store::DeviceStore::new(phantom_dir)
             .context("initialize device store")?,
     );
 
@@ -83,16 +88,25 @@ async fn run_daemon(bind: std::net::SocketAddr) -> Result<()> {
     let cancel = CancellationToken::new();
     let sm_for_reaper = session_manager.clone();
     let cancel_for_reaper = cancel.clone();
+    let reaper_interval = config.session.reaper_interval_secs;
     tokio::spawn(async move {
-        sm_for_reaper.run_reaper(cancel_for_reaper).await;
+        sm_for_reaper.run_reaper(cancel_for_reaper, reaper_interval).await;
     });
 
-    // Prevent system sleep while running
     server::prevent_sleep();
 
     info!("Phantom daemon listening on {}", endpoint.local_addr()?);
 
-    let result = server::run(endpoint, session_manager, authenticator).await;
+    let rate_config = &config.rate_limit;
+    let result = server::run(
+        endpoint,
+        session_manager,
+        authenticator,
+        rate_config.connection_limit,
+        rate_config.connection_window_secs,
+        rate_config.auth_failure_limit,
+        rate_config.auth_failure_window_secs,
+    ).await;
 
     server::allow_sleep();
     cancel.cancel();

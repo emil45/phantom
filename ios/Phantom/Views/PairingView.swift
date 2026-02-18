@@ -17,7 +17,7 @@ struct PairingView: View {
             Text("Phantom")
                 .font(.largeTitle.bold())
 
-            Text("Scan the QR code shown by\nphantom pair on your Mac")
+            Text("Scan the QR code shown by\n**phantom pair** on your Mac")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
 
@@ -35,16 +35,17 @@ struct PairingView: View {
                 Text(error)
                     .foregroundStyle(.red)
                     .font(.caption)
+                    .padding(.horizontal)
+            }
+
+            if reconnectManager.state == .connecting || reconnectManager.state == .authenticating {
+                ProgressView("Connecting to server...")
             }
 
             Button("Enter manually instead") {
                 showManualEntry = true
             }
             .font(.subheadline)
-
-            if reconnectManager.state == .connecting || reconnectManager.state == .authenticating {
-                ProgressView("Pairing...")
-            }
         }
         .padding()
         .sheet(isPresented: $showManualEntry) {
@@ -61,6 +62,11 @@ struct PairingView: View {
                         .textInputAutocapitalization(.never)
                     TextField("Port", text: $manualPort)
                         .keyboardType(.numberPad)
+                    if let portError = portValidationError {
+                        Text(portError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 }
                 Section("Pairing") {
                     TextField("Token", text: $manualToken)
@@ -69,6 +75,11 @@ struct PairingView: View {
                     TextField("Fingerprint (optional)", text: $manualFingerprint)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
+                }
+                Section {
+                    Text("Run **phantom pair** on your Mac to get these values.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Manual Pairing")
@@ -83,24 +94,38 @@ struct PairingView: View {
                         let port = UInt16(manualPort) ?? 4433
                         let fp = manualFingerprint.isEmpty ? nil : manualFingerprint
                         reconnectManager.connectForPairing(
-                            host: manualHost,
+                            host: manualHost.trimmingCharacters(in: .whitespaces),
                             port: port,
                             fingerprint: fp ?? "",
-                            token: manualToken,
+                            token: manualToken.trimmingCharacters(in: .whitespaces),
                             serverName: manualHost
                         )
                     }
-                    .disabled(manualHost.isEmpty || manualToken.isEmpty)
+                    .disabled(!isManualFormValid)
                 }
             }
         }
+    }
+
+    private var isManualFormValid: Bool {
+        !manualHost.trimmingCharacters(in: .whitespaces).isEmpty
+        && !manualToken.trimmingCharacters(in: .whitespaces).isEmpty
+        && portValidationError == nil
+    }
+
+    private var portValidationError: String? {
+        guard !manualPort.isEmpty else { return nil }
+        guard let port = UInt16(manualPort), port > 0 else {
+            return "Port must be 1–65535"
+        }
+        return nil
     }
 
     private func handleScan(result: Result<ScanResult, ScanError>) {
         switch result {
         case .success(let scan):
             guard let payload = PairingPayload.decode(from: scan.string) else {
-                errorMessage = "Invalid QR code"
+                errorMessage = "Invalid QR code — make sure you're scanning the code from phantom pair"
                 return
             }
             errorMessage = nil
@@ -111,8 +136,8 @@ struct PairingView: View {
                 token: payload.token,
                 serverName: payload.serverName
             )
-        case .failure(let error):
-            errorMessage = "Scan failed: \(error.localizedDescription)"
+        case .failure:
+            errorMessage = "Camera scan failed — try entering details manually"
         }
     }
 }

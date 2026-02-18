@@ -4,6 +4,8 @@ import Foundation
 /// Backed by UserDefaults for simplicity (no sensitive data — keys are in Secure Enclave).
 final class DeviceStore {
     private let defaults = UserDefaults.standard
+    /// Cached device ID (generated once, thread-safe via init)
+    let deviceId: String
 
     private enum Keys {
         static let serverHost = "phantom.server.host"
@@ -12,6 +14,17 @@ final class DeviceStore {
         static let serverName = "phantom.server.name"
         static let deviceId = "phantom.device.id"
         static let isPaired = "phantom.isPaired"
+    }
+
+    init() {
+        let defaults = UserDefaults.standard
+        if let id = defaults.string(forKey: Keys.deviceId) {
+            self.deviceId = id
+        } else {
+            let id = UUID().uuidString.lowercased()
+            defaults.set(id, forKey: Keys.deviceId)
+            self.deviceId = id
+        }
     }
 
     var isPaired: Bool {
@@ -32,15 +45,6 @@ final class DeviceStore {
 
     var serverName: String? {
         defaults.string(forKey: Keys.serverName)
-    }
-
-    var deviceId: String {
-        if let id = defaults.string(forKey: Keys.deviceId) {
-            return id
-        }
-        let id = UUID().uuidString.lowercased()
-        defaults.set(id, forKey: Keys.deviceId)
-        return id
     }
 
     func savePairing(host: String, port: UInt16, fingerprint: String, serverName: String) {

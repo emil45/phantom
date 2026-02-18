@@ -55,6 +55,21 @@ final class TerminalDataSource: NSObject, ObservableObject, TerminalViewDelegate
         UIPasteboard.general.setData(content, forPasteboardType: "public.utf8-plain-text")
     }
 
+    /// Paste from system clipboard into terminal.
+    func paste() {
+        guard let string = UIPasteboard.general.string,
+              let data = string.data(using: .utf8) else { return }
+        reconnectManager?.sendInput(data)
+    }
+
+    /// Adjust terminal font size by delta points.
+    func adjustFontSize(delta: CGFloat) {
+        let current = terminalView.font.pointSize
+        let newSize = max(8, min(32, current + delta))
+        let font = UIFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
+        terminalView.font = font
+    }
+
     nonisolated func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 
     nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
@@ -65,7 +80,9 @@ final class TerminalDataSource: NSObject, ObservableObject, TerminalViewDelegate
 
     nonisolated func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
         if let url = URL(string: link) {
-            UIApplication.shared.open(url)
+            Task { @MainActor in
+                UIApplication.shared.open(url)
+            }
         }
     }
 }

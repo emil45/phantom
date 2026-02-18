@@ -62,45 +62,62 @@ impl RateLimiter {
     }
 }
 
-/// Run the QUIC server accept loop.
+/// Run the QUIC server accept loop with graceful shutdown on SIGTERM/SIGINT.
 pub async fn run(
     endpoint: quinn::Endpoint,
     session_manager: Arc<SessionManager>,
     authenticator: Arc<Authenticator>,
+    conn_limit: usize,
+    conn_window_secs: u64,
+    auth_fail_limit: usize,
+    auth_fail_window_secs: u64,
 ) -> Result<()> {
-    let rate_limiter = Arc::new(RateLimiter::new(5, Duration::from_secs(60)));
-    // Separate limiter for auth failures: max 3 failed auths per IP per 5 minutes
-    let auth_fail_limiter = Arc::new(RateLimiter::new(3, Duration::from_secs(300)));
+    let rate_limiter = Arc::new(RateLimiter::new(conn_limit, Duration::from_secs(conn_window_secs)));
+    let auth_fail_limiter = Arc::new(RateLimiter::new(auth_fail_limit, Duration::from_secs(auth_fail_window_secs)));
 
     info!("accepting connections on {}", endpoint.local_addr()?);
 
-    while let Some(incoming) = endpoint.accept().await {
-        let remote = incoming.remote_address();
-        let ip = remote.ip();
+    loop {
+        tokio::select! {
+            incoming = endpoint.accept() => {
+                let Some(incoming) = incoming else { break };
+                let remote = incoming.remote_address();
+                let ip = remote.ip();
 
-        if !rate_limiter.check(ip) {
-            warn!("rate limited connection from {remote}");
-            incoming.refuse();
-            continue;
-        }
+                if !rate_limiter.check(ip) {
+                    warn!("rate limited connection from {remote}");
+                    incoming.refuse();
+                    continue;
+                }
 
-        // Check if this IP has too many auth failures (read-only check)
-        if !auth_fail_limiter.is_allowed(ip) {
-            warn!("auth-failure rate limited connection from {remote}");
-            incoming.refuse();
-            continue;
-        }
+                if !auth_fail_limiter.is_allowed(ip) {
+                    warn!("auth-failure rate limited connection from {remote}");
+                    incoming.refuse();
+                    continue;
+                }
 
-        let sm = session_manager.clone();
-        let auth = authenticator.clone();
-        let fail_limiter = auth_fail_limiter.clone();
+                let sm = session_manager.clone();
+                let auth = authenticator.clone();
+                let fail_limiter = auth_fail_limiter.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = handle_connection(incoming, sm, auth, fail_limiter).await {
-                error!("connection from {remote} failed: {e:#}");
+                tokio::spawn(async move {
+                    if let Err(e) = handle_connection(incoming, sm, auth, fail_limiter).await {
+                        error!("connection from {remote} failed: {e:#}");
+                    }
+                });
             }
-        });
+            _ = tokio::signal::ctrl_c() => {
+                info!("received shutdown signal, closing endpoint...");
+                break;
+            }
+        }
     }
+
+    // Graceful shutdown: close endpoint and destroy all sessions
+    endpoint.close(0u32.into(), b"server shutdown");
+    info!("destroying all sessions...");
+    session_manager.destroy_all();
+    info!("shutdown complete");
 
     Ok(())
 }

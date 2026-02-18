@@ -69,8 +69,7 @@ struct SessionListView: View {
             }
             ToolbarItem(placement: .navigationBarLeading) {
                 Button {
-                    reconnectManager.disconnect()
-                    reconnectManager.deviceStore.clearPairing()
+                    reconnectManager.removeDeviceAndDisconnect()
                 } label: {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                 }

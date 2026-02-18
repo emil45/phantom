@@ -21,6 +21,7 @@
 		A10000010000000000000013 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000013 /* PairingView.swift */; };
 		A10000010000000000000014 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000014 /* SessionListView.swift */; };
 		A10000010000000000000015 /* DeviceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000015 /* DeviceStore.swift */; };
+		A10000010000000000000016 /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000020000000000000016 /* Logging.swift */; };
 		A10000010000000000000020 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A10000030000000000000020 /* SwiftTerm */; };
 		A10000010000000000000021 /* CodeScanner in Frameworks */ = {isa = PBXBuildFile; productRef = A10000030000000000000021 /* CodeScanner */; };
 /* End PBXBuildFile section */
@@ -41,6 +42,7 @@
 		A10000020000000000000013 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		A10000020000000000000014 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
 		A10000020000000000000015 /* DeviceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceStore.swift; sourceTree = "<group>"; };
+		A10000020000000000000016 /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -68,6 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000020000000000000001 /* PhantomApp.swift */,
+				A10000020000000000000016 /* Logging.swift */,
 				A10000050000000000000003 /* Models */,
 				A10000050000000000000007 /* Crypto */,
 				A10000050000000000000004 /* Network */,
@@ -215,6 +218,7 @@
 				A10000010000000000000013 /* PairingView.swift in Sources */,
 				A10000010000000000000014 /* SessionListView.swift in Sources */,
 				A10000010000000000000015 /* DeviceStore.swift in Sources */,
+				A10000010000000000000016 /* Logging.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

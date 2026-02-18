@@ -102,10 +102,21 @@ impl DeviceStore {
     }
 
     fn load_tokens(&self) -> HashMap<String, u64> {
-        fs::read_to_string(&self.token_path)
+        let mut tokens: HashMap<String, u64> = fs::read_to_string(&self.token_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Prune expired tokens on every load
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let before = tokens.len();
+        tokens.retain(|_, &mut exp| exp > now);
+        if tokens.len() < before {
+            self.save_tokens(&tokens);
+        }
+        tokens
     }
 
     fn save_tokens(&self, tokens: &HashMap<String, u64>) {
@@ -188,6 +199,30 @@ impl DeviceStore {
         Ok(())
     }
 
+    /// Generate all data needed for a pairing QR code / manual entry.
+    /// Creates a new pairing token and returns the payload.
+    pub fn generate_pairing_data(&self, fingerprint: &str, port: u16) -> PairingData {
+        let token = self.create_pairing_token();
+        let host = local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
+        let name = hostname();
+        let qr_payload = serde_json::json!({
+            "host": host,
+            "port": port,
+            "fp": fingerprint,
+            "tok": token,
+            "name": name,
+            "v": 1,
+        });
+        PairingData {
+            qr_payload_json: serde_json::to_string(&qr_payload).unwrap(),
+            token,
+            host,
+            port,
+            fingerprint: fingerprint.to_string(),
+            expires_in_secs: 300,
+        }
+    }
+
     fn append_audit(&self, device_id: &str, action: &str) {
         let line = format!(
             "{}\t{}\t{}\n",
@@ -207,4 +242,27 @@ impl DeviceStore {
             warn!("failed to write audit log: {e}");
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PairingData {
+    pub qr_payload_json: String,
+    pub token: String,
+    pub host: String,
+    pub port: u16,
+    pub fingerprint: String,
+    pub expires_in_secs: u64,
+}
+
+pub fn local_ip() -> Option<String> {
+    use std::net::UdpSocket;
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    Some(socket.local_addr().ok()?.ip().to_string())
+}
+
+pub fn hostname() -> String {
+    std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| "phantom-host".to_string())
 }

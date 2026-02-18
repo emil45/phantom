@@ -175,7 +175,7 @@ impl TestHarness {
         let reaper_cancel = tokio_util::sync::CancellationToken::new();
         let reaper_cancel_clone = reaper_cancel.clone();
         tokio::spawn(async move {
-            sm_for_reaper.run_reaper(reaper_cancel_clone).await;
+            sm_for_reaper.run_reaper(reaper_cancel_clone, 5).await;
         });
 
         let sm_for_server = session_manager.clone();
@@ -184,6 +184,10 @@ impl TestHarness {
                 server_endpoint,
                 sm_for_server,
                 authenticator,
+                100,  // conn_limit
+                60,   // conn_window_secs
+                10,   // auth_fail_limit
+                300,  // auth_fail_window_secs
             ).await {
                 eprintln!("server error: {e:#}");
             }

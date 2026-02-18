@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Network
+import os
 
 /// Central coordinator for QUIC connection lifecycle, authentication,
 /// session management, and frame-based terminal I/O.
@@ -15,6 +16,7 @@ final class ReconnectManager: ObservableObject {
     private var dataStream: NWConnection?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var keystrokeBuffer: [Data] = []
+    private let maxKeystrokeBuffer = 10_000
     private var isBuffering = false
     private var frameDecoder = FrameDecoder()
     private var seqOut: UInt64 = 1
@@ -62,7 +64,7 @@ final class ReconnectManager: ObservableObject {
 
         client.onTunnelFailed = { [weak self] error in
             Task { @MainActor in
-                NSLog("QUIC tunnel failed: \(String(describing: error))")
+                Logger.quic.error("QUIC tunnel failed: \(String(describing: error))")
                 self?.state = .disconnected
                 self?.scheduleReconnect()
             }
@@ -73,14 +75,14 @@ final class ReconnectManager: ObservableObject {
 
     /// Connect for initial pairing (before server info is persisted).
     func connectForPairing(host: String, port: UInt16, fingerprint: String, token: String, serverName: String) {
-        NSLog("connectForPairing: host=%@, port=%d, fp=%@", host, port, fingerprint)
+        Logger.auth.info("connectForPairing: host=\(host), port=\(port), fp=\(fingerprint)")
         state = .connecting
 
         let client = QUICClient(host: host, port: port, fingerprint: fingerprint)
         self.client = client
 
         client.onTunnelReady = { [weak self] in
-            NSLog("connectForPairing: tunnel ready!")
+            Logger.auth.info("connectForPairing: tunnel ready!")
             Task { @MainActor in
                 self?.performPairing(
                     host: host,
@@ -93,13 +95,13 @@ final class ReconnectManager: ObservableObject {
         }
 
         client.onTunnelFailed = { [weak self] error in
-            NSLog("connectForPairing: tunnel FAILED: \(String(describing: error))")
+            Logger.auth.error("connectForPairing: tunnel FAILED: \(String(describing: error))")
             Task { @MainActor in
                 self?.state = .disconnected
             }
         }
 
-        NSLog("connectForPairing: calling client.connect()")
+        Logger.auth.info("connectForPairing: calling client.connect()")
         client.connect()
     }
 
@@ -135,7 +137,7 @@ final class ReconnectManager: ObservableObject {
 
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("Auth send error: \(error)")
+                Logger.auth.error("Auth send error: \(error)")
                 Task { @MainActor in
                     self?.state = .disconnected
                     self?.scheduleReconnect()
@@ -156,7 +158,7 @@ final class ReconnectManager: ObservableObject {
                     self.handleAuthChallenge(data, on: stream, requestId: requestId, deviceId: deviceId)
                 }
             case .failure(let error):
-                NSLog("Auth receive error: \(error)")
+                Logger.auth.error("Auth receive error: \(error)")
                 Task { @MainActor in
                     self.state = .disconnected
                     self.scheduleReconnect()
@@ -182,14 +184,14 @@ final class ReconnectManager: ObservableObject {
             // Build signed data: challenge || tls_exporter_keying_material
             // For now, sign just the challenge. TLS exporter binding will be
             // validated in Phase 4 integration testing.
-            var signedData = challengeBytes
+            let signedData = challengeBytes
             // TODO: Add TLS exporter binding when NWProtocolTLS metadata access is validated
             // if let exporter = stream.exportKeyingMaterial(context: receiveContext, label: "phantom-auth", contextData: Data(), length: 32) {
             //     signedData.append(exporter)
             // }
 
             guard let signature = try? keyManager.sign(signedData) else {
-                NSLog("Failed to sign challenge")
+                Logger.auth.error("Failed to sign challenge")
                 state = .disconnected
                 return
             }
@@ -205,7 +207,7 @@ final class ReconnectManager: ObservableObject {
 
             stream.sendControlMessage(responseJson) { [weak self] error in
                 if let error = error {
-                    NSLog("Auth response send error: \(error)")
+                    Logger.auth.error("Auth response send error: \(error)")
                     Task { @MainActor in
                         self?.state = .disconnected
                     }
@@ -217,7 +219,7 @@ final class ReconnectManager: ObservableObject {
             // Direct response (e.g., from pairing flow)
             handleAuthResult(json)
         } else {
-            NSLog("Unexpected auth message type: \(type)")
+            Logger.auth.error("Unexpected auth message type: \(type)")
             state = .disconnected
         }
     }
@@ -234,7 +236,7 @@ final class ReconnectManager: ObservableObject {
                     self?.handleAuthResult(json)
                 }
             case .failure(let error):
-                NSLog("Auth result receive error: \(error)")
+                Logger.auth.error("Auth result receive error: \(error)")
                 Task { @MainActor in
                     self?.state = .disconnected
                     self?.scheduleReconnect()
@@ -259,7 +261,7 @@ final class ReconnectManager: ObservableObject {
             }
         } else {
             let error = json["error"] as? String ?? "unknown"
-            NSLog("Auth failed: \(error)")
+            Logger.auth.error("Auth failed: \(error)")
             state = .disconnected
         }
     }
@@ -267,13 +269,13 @@ final class ReconnectManager: ObservableObject {
     // MARK: - Pairing
 
     private func performPairing(host: String, port: UInt16, fingerprint: String, token: String, serverName: String) {
-        NSLog("performPairing: using first stream for pairing")
+        Logger.auth.info("performPairing: using first stream for pairing")
         guard let stream = client?.firstStream else {
-            NSLog("performPairing: no first stream available")
+            Logger.auth.error("performPairing: no first stream available")
             state = .disconnected
             return
         }
-        NSLog("performPairing: stream state = \(stream.state)")
+        Logger.auth.info("performPairing: stream state = \(String(describing: stream.state))")
         controlStream = stream
         sendPairingRequest(
             on: stream, host: host, port: port,
@@ -299,18 +301,18 @@ final class ReconnectManager: ObservableObject {
         ]
 
         guard let json = try? JSONSerialization.data(withJSONObject: request) else {
-            NSLog("sendPairingRequest: JSON serialization FAILED")
+            Logger.auth.error("sendPairingRequest: JSON serialization FAILED")
             return
         }
-        NSLog("sendPairingRequest: sending %d bytes on stream state=%@", json.count, "\(stream.state)")
+        Logger.auth.debug("sendPairingRequest: sending \(json.count) bytes on stream state=\(String(describing: stream.state))")
 
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("sendPairingRequest: send ERROR: \(error)")
+                Logger.auth.error("sendPairingRequest: send ERROR: \(error)")
                 Task { @MainActor in self?.state = .disconnected }
                 return
             }
-            NSLog("sendPairingRequest: send completed OK, waiting for response")
+            Logger.auth.info("sendPairingRequest: send completed OK, waiting for response")
             // Receive pairing result
             stream.receiveControlMessage { result in
                 switch result {
@@ -330,12 +332,12 @@ final class ReconnectManager: ObservableObject {
                             self?.reconnectAttempt = 0
                         } else {
                             let error = json["error"] as? String ?? "unknown"
-                            NSLog("Pairing failed: \(error)")
+                            Logger.auth.error("Pairing failed: \(error)")
                             self?.state = .disconnected
                         }
                     }
                 case .failure(let error):
-                    NSLog("Pairing response error: \(error)")
+                    Logger.auth.error("Pairing response error: \(error)")
                     Task { @MainActor in self?.state = .disconnected }
                 }
             }
@@ -364,7 +366,7 @@ final class ReconnectManager: ObservableObject {
         guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("list_sessions send error: \(error)")
+                Logger.session.error("list_sessions send error: \(error)")
                 self?.handleControlStreamError()
                 return
             }
@@ -389,7 +391,7 @@ final class ReconnectManager: ObservableObject {
                         }
                     }
                 case .failure(let error):
-                    NSLog("list_sessions receive error: \(error)")
+                    Logger.session.error("list_sessions receive error: \(error)")
                     self?.handleControlStreamError()
                 }
             }
@@ -398,7 +400,7 @@ final class ReconnectManager: ObservableObject {
 
     func createSession(rows: UInt16, cols: UInt16) {
         guard let stream = controlStream else {
-            NSLog("createSession: no control stream!")
+            Logger.session.error("createSession: no control stream!")
             return
         }
         let requestId = generateRequestId()
@@ -411,7 +413,7 @@ final class ReconnectManager: ObservableObject {
         guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("create_session send error: \(error)")
+                Logger.session.error("create_session send error: \(error)")
                 self?.handleControlStreamError()
                 return
             }
@@ -428,7 +430,7 @@ final class ReconnectManager: ObservableObject {
                         }
                     }
                 case .failure(let error):
-                    NSLog("create_session receive error: \(error)")
+                    Logger.session.error("create_session receive error: \(error)")
                     self?.handleControlStreamError()
                 }
             }
@@ -446,7 +448,7 @@ final class ReconnectManager: ObservableObject {
         guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("attach_session send error: \(error)")
+                Logger.session.error("attach_session send error: \(error)")
                 self?.handleControlStreamError()
                 return
             }
@@ -464,7 +466,7 @@ final class ReconnectManager: ObservableObject {
                         }
                     }
                 case .failure(let error):
-                    NSLog("attach_session receive error: \(error)")
+                    Logger.session.error("attach_session receive error: \(error)")
                     self?.handleControlStreamError()
                 }
             }
@@ -495,7 +497,7 @@ final class ReconnectManager: ObservableObject {
         guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("destroy_session send error: \(error)")
+                Logger.session.error("destroy_session send error: \(error)")
                 self?.handleControlStreamError()
                 return
             }
@@ -510,7 +512,7 @@ final class ReconnectManager: ObservableObject {
                         self?.listSessions()
                     }
                 case .failure(let error):
-                    NSLog("destroy_session receive error: \(error)")
+                    Logger.session.error("destroy_session receive error: \(error)")
                     self?.handleControlStreamError()
                 }
             }
@@ -521,7 +523,9 @@ final class ReconnectManager: ObservableObject {
 
     func sendInput(_ data: Data) {
         if isBuffering || !state.isUsable || dataStream == nil {
-            keystrokeBuffer.append(data)
+            if keystrokeBuffer.count < maxKeystrokeBuffer {
+                keystrokeBuffer.append(data)
+            }
             if !isBuffering { isBuffering = true }
             return
         }
@@ -533,7 +537,7 @@ final class ReconnectManager: ObservableObject {
 
         dataStream?.send(content: encoded, completion: .contentProcessed { error in
             if let error = error {
-                NSLog("Frame send error: \(error)")
+                Logger.quic.error("Frame send error: \(error)")
             }
         })
     }
@@ -560,14 +564,14 @@ final class ReconnectManager: ObservableObject {
             }
 
             if isComplete {
-                NSLog("Data stream FIN")
+                Logger.quic.info("Data stream FIN")
                 Task { @MainActor in
                     self.dataStream = nil
                 }
                 return
             }
             if let error = error {
-                NSLog("Data stream error: \(error)")
+                Logger.quic.error("Data stream error: \(error)")
                 Task { @MainActor in
                     self.dataStream = nil
                     if self.state == .connected {
@@ -604,7 +608,7 @@ final class ReconnectManager: ObservableObject {
                     break // keepalive handled by QUIC
 
                 case .close:
-                    NSLog("Server sent Close frame")
+                    Logger.quic.info("Server sent Close frame")
                     Task { @MainActor in
                         self.activeSessionId = nil
                         self.dataStream?.cancel()
@@ -616,7 +620,7 @@ final class ReconnectManager: ObservableObject {
                 }
             }
         } catch {
-            NSLog("Frame decode error: \(error)")
+            Logger.quic.error("Frame decode error: \(error)")
         }
     }
 
@@ -718,13 +722,40 @@ final class ReconnectManager: ObservableObject {
         isBuffering = true
 
         let delays: [TimeInterval] = [0.5, 1, 2, 4, 8]
-        let delay = delays[min(reconnectAttempt, delays.count - 1)]
+        let base = delays[min(reconnectAttempt, delays.count - 1)]
+        let jitter = TimeInterval.random(in: 0...(base * 0.3))
+        let delay = base + jitter
         reconnectAttempt += 1
 
         Task {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             if state == .reconnecting {
                 connect()
+            }
+        }
+    }
+
+    /// Notify server that this device is unpairing, then disconnect.
+    func removeDeviceAndDisconnect() {
+        guard let stream = controlStream else {
+            disconnect()
+            deviceStore.clearPairing()
+            return
+        }
+        let requestId = generateRequestId()
+        let request: [String: Any] = [
+            "type": "remove_device",
+            "request_id": requestId,
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else {
+            disconnect()
+            deviceStore.clearPairing()
+            return
+        }
+        stream.sendControlMessage(json) { [weak self] _ in
+            Task { @MainActor in
+                self?.disconnect()
+                self?.deviceStore.clearPairing()
             }
         }
     }

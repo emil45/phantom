@@ -3,7 +3,7 @@ use phantom_frame::{self as frame, Frame, FrameDecoder, FrameType};
 use quinn::{RecvStream, SendStream};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -46,8 +46,8 @@ pub async fn handle_session_stream(
 
         match msg_type {
             "create_session" => {
-                let rows = req["rows"].as_u64().unwrap_or(24) as u16;
-                let cols = req["cols"].as_u64().unwrap_or(80) as u16;
+                let rows = (req["rows"].as_u64().unwrap_or(24) as u16).clamp(1, 500);
+                let cols = (req["cols"].as_u64().unwrap_or(80) as u16).clamp(1, 500);
                 let request_id = req["request_id"].as_str().unwrap_or("");
 
                 let session_id = session_manager
@@ -126,6 +126,17 @@ pub async fn handle_session_stream(
                 write_json(&mut send, &resp).await?;
                 // Continue looping for more requests
             }
+            "remove_device" => {
+                let request_id = req["request_id"].as_str().unwrap_or("");
+                info!("device requested self-removal");
+                let resp = serde_json::json!({
+                    "type": "device_removed",
+                    "request_id": request_id,
+                    "success": true,
+                });
+                write_json(&mut send, &resp).await?;
+                return Ok(());
+            }
             other => {
                 warn!("unknown session request type: {other}");
                 let resp = serde_json::json!({
@@ -133,7 +144,6 @@ pub async fn handle_session_stream(
                     "error": format!("unknown request type: {other}"),
                 });
                 write_json(&mut send, &resp).await?;
-                // Continue looping
             }
         }
     }
@@ -224,6 +234,7 @@ async fn run_bridge_inner(
 ) -> Result<()> {
     let mut seq_out: u64 = 1;
     let client_window = Arc::new(std::sync::atomic::AtomicU64::new(DEFAULT_WINDOW));
+    let window_notify = Arc::new(Notify::new());
 
     // PTY → channel (blocking thread)
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(64);
@@ -260,6 +271,7 @@ async fn run_bridge_inner(
 
     // Channel → QUIC send (with framing and flow control)
     let window_for_send = client_window.clone();
+    let notify_for_send = window_notify.clone();
     let scrollback_for_send = scrollback.clone();
     let cancel_send = cancel.clone();
 
@@ -275,12 +287,21 @@ async fn run_bridge_inner(
                 sb.append(&data);
             }
 
-            // Check flow control window
-            let window = window_for_send.load(std::sync::atomic::Ordering::Relaxed);
-            if window == 0 {
-                // TODO: properly pause PTY reads when window is exhausted.
-                // For v1, we continue sending — QUIC transport flow control is the safety net.
-                warn!("client window exhausted, continuing (QUIC transport flow control active)");
+            // Wait for flow control window to have space
+            loop {
+                let window = window_for_send.load(std::sync::atomic::Ordering::Relaxed);
+                if window > 0 || cancel_send.is_cancelled() {
+                    break;
+                }
+                // Wait for window update notification (with timeout to avoid deadlock)
+                tokio::select! {
+                    _ = notify_for_send.notified() => {}
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                        warn!("flow control: window still 0 after 5s, resuming");
+                        break;
+                    }
+                    _ = cancel_send.cancelled() => break,
+                }
             }
 
             // Encode frame with compression for larger payloads
@@ -293,7 +314,6 @@ async fn run_bridge_inner(
                     if send.write_all(&encoded).await.is_err() {
                         break;
                     }
-                    // Decrement window by payload size
                     window_for_send.fetch_sub(
                         frame.payload.len() as u64,
                         std::sync::atomic::Ordering::Relaxed,
@@ -310,6 +330,7 @@ async fn run_bridge_inner(
 
     // QUIC recv → frame decode → PTY write / handle control frames
     let window_for_recv = client_window;
+    let notify_for_recv = window_notify;
     let cancel_recv = cancel.clone();
 
     let recv_handle = tokio::spawn(async move {
@@ -341,6 +362,8 @@ async fn run_bridge_inner(
                                     }
                                     FrameType::Resize => {
                                         if let Some((cols, rows)) = frame.parse_resize() {
+                                            let cols = cols.clamp(1, 500);
+                                            let rows = rows.clamp(1, 500);
                                             let s = session_for_resize.lock()
                                                 .expect("session lock");
                                             if let Err(e) = s.resize(rows, cols) {
@@ -354,6 +377,7 @@ async fn run_bridge_inner(
                                                 window,
                                                 std::sync::atomic::Ordering::Relaxed,
                                             );
+                                            notify_for_recv.notify_one();
                                         }
                                     }
                                     FrameType::Close => {

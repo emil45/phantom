@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import CryptoKit
+import os
 
 /// QUIC client using Network.framework.
 /// Uses NWConnection directly — each connection is a QUIC stream within the same tunnel.
@@ -60,15 +61,15 @@ final class QUICClient {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
-                NSLog("QUICClient: tunnel + first stream ready")
+                Logger.quic.info("QUICClient: tunnel + first stream ready")
                 self?.onTunnelReady?()
             case .failed(let error):
-                NSLog("QUICClient: tunnel failed: \(error)")
+                Logger.quic.error("tunnel failed: \(error)")
                 self?.onTunnelFailed?(error)
             case .cancelled:
                 break
             case .waiting(let error):
-                NSLog("QUICClient: tunnel waiting: \(error)")
+                Logger.quic.warning("tunnel waiting: \(error)")
             default:
                 break
             }
@@ -80,25 +81,25 @@ final class QUICClient {
     /// Return the first stream (the tunnel connection itself).
     /// For the control channel, this is all we need.
     func openStream(completion: @escaping (NWConnection?) -> Void) {
-        // The first call returns the tunnel connection as the first bidi stream.
-        // Subsequent calls would need NWConnectionGroup for multiplexing,
-        // but for now we use the single-stream approach.
         guard let conn = tunnelConnection else {
             completion(nil)
             return
         }
-        // If the connection is already ready, return it immediately
-        if conn.state == .ready {
-            completion(conn)
-        } else {
-            // Wait for ready
-            let prevHandler = conn.stateUpdateHandler
-            conn.stateUpdateHandler = { [weak self] state in
-                prevHandler?(state)
-                if state == .ready {
-                    completion(conn)
-                }
+        // Set handler first to avoid race between state check and handler install.
+        // Use a flag to ensure completion is only called once.
+        var called = false
+        let prevHandler = conn.stateUpdateHandler
+        conn.stateUpdateHandler = { [weak self] state in
+            prevHandler?(state)
+            if state == .ready && !called {
+                called = true
+                completion(conn)
             }
+        }
+        // If already ready, fire immediately (handler won't fire again for .ready)
+        if conn.state == .ready && !called {
+            called = true
+            completion(conn)
         }
     }
 

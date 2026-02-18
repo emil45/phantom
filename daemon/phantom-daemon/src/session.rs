@@ -254,6 +254,22 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Destroy all sessions (for graceful shutdown).
+    pub fn destroy_all(&self) {
+        let ids: Vec<String> = self
+            .sessions
+            .lock()
+            .expect("sessions lock")
+            .keys()
+            .cloned()
+            .collect();
+        for id in ids {
+            if let Err(e) = self.destroy_session(&id) {
+                warn!("destroy_all: session {id}: {e}");
+            }
+        }
+    }
+
     pub fn register_connection(&self, device_id: &str, conn: &quinn::Connection) {
         let mut conns = self.connections.lock().expect("connections lock");
         // Tear down old connection from same device (stale)
@@ -270,9 +286,19 @@ impl SessionManager {
             .remove(device_id);
     }
 
-    /// Run the session reaper: check for dead sessions every 5 seconds.
-    pub async fn run_reaper(self: &Arc<Self>, cancel: CancellationToken) {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    /// Return the device IDs of all currently connected devices.
+    pub fn connected_device_ids(&self) -> Vec<String> {
+        self.connections
+            .lock()
+            .expect("connections lock")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Run the session reaper: check for dead sessions periodically.
+    pub async fn run_reaper(self: &Arc<Self>, cancel: CancellationToken, interval_secs: u64) {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
         loop {
             tokio::select! {
                 _ = interval.tick() => {}
