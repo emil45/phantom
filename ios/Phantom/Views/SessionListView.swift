@@ -90,7 +90,7 @@ struct SessionListView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button {
-                            reconnectManager.activeSessionId = nil
+                            reconnectManager.detachSession()
                             navigateToTerminal = false
                         } label: {
                             Image(systemName: "chevron.left")

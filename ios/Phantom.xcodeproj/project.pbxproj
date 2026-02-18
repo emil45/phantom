@@ -230,6 +230,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Phantom;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Phantom needs camera access to scan the pairing QR code from your Mac.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Phantom connects to the daemon running on your Mac over the local network.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -257,6 +258,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Phantom;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Phantom needs camera access to scan the pairing QR code from your Mac.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Phantom connects to the daemon running on your Mac over the local network.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

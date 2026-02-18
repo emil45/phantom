@@ -30,6 +30,7 @@ final class QUICClient {
     func connect() {
         let options = NWProtocolQUIC.Options(alpn: ["phantom/1"])
         options.direction = .bidirectional
+        options.idleTimeout = 90_000 // 90 seconds (ms) — daemon uses 60s, be generous
 
         let expectedFingerprint = self.fingerprint
         sec_protocol_options_set_verify_block(
@@ -46,7 +47,7 @@ final class QUICClient {
         )
 
         let params = NWParameters(quic: options)
-        params.multipathServiceType = .handover
+        params.multipathServiceType = .disabled
 
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),

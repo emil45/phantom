@@ -251,9 +251,11 @@ final class ReconnectManager: ObservableObject {
             isBuffering = false
             replayBufferedKeystrokes()
 
-            // If we had an active session, reattach
+            // If we had an active session, reattach; otherwise refresh session list
             if let sessionId = activeSessionId {
                 attachSession(sessionId)
+            } else {
+                listSessions()
             }
         } else {
             let error = json["error"] as? String ?? "unknown"
@@ -342,6 +344,16 @@ final class ReconnectManager: ObservableObject {
 
     // MARK: - Session Management
 
+    /// Handle a control stream error by triggering reconnect.
+    private func handleControlStreamError() {
+        Task { @MainActor in
+            if self.state == .connected {
+                self.state = .disconnected
+                self.scheduleReconnect()
+            }
+        }
+    }
+
     func listSessions() {
         guard let stream = controlStream else { return }
         let requestId = generateRequestId()
@@ -353,6 +365,7 @@ final class ReconnectManager: ObservableObject {
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
                 NSLog("list_sessions send error: \(error)")
+                self?.handleControlStreamError()
                 return
             }
             stream.receiveControlMessage { result in
@@ -377,6 +390,7 @@ final class ReconnectManager: ObservableObject {
                     }
                 case .failure(let error):
                     NSLog("list_sessions receive error: \(error)")
+                    self?.handleControlStreamError()
                 }
             }
         }
@@ -398,6 +412,7 @@ final class ReconnectManager: ObservableObject {
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
                 NSLog("create_session send error: \(error)")
+                self?.handleControlStreamError()
                 return
             }
             stream.receiveControlMessage { result in
@@ -414,6 +429,7 @@ final class ReconnectManager: ObservableObject {
                     }
                 case .failure(let error):
                     NSLog("create_session receive error: \(error)")
+                    self?.handleControlStreamError()
                 }
             }
         }
@@ -431,6 +447,7 @@ final class ReconnectManager: ObservableObject {
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
                 NSLog("attach_session send error: \(error)")
+                self?.handleControlStreamError()
                 return
             }
             stream.receiveControlMessage { result in
@@ -448,9 +465,23 @@ final class ReconnectManager: ObservableObject {
                     }
                 case .failure(let error):
                     NSLog("attach_session receive error: \(error)")
+                    self?.handleControlStreamError()
                 }
             }
         }
+    }
+
+    /// Detach from the current session and reconnect for a fresh control stream.
+    /// The single QUIC stream is consumed by bridge mode, so we must reconnect.
+    func detachSession() {
+        activeSessionId = nil
+        dataStream = nil
+        controlStream = nil
+        client?.disconnect()
+        client = nil
+        state = .disconnected
+        reconnectAttempt = 0
+        connect()
     }
 
     func destroySession(_ sessionId: String) {
@@ -463,14 +494,24 @@ final class ReconnectManager: ObservableObject {
         ]
         guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
         stream.sendControlMessage(json) { [weak self] error in
-            if error != nil { return }
-            stream.receiveControlMessage { _ in
-                Task { @MainActor in
-                    if self?.activeSessionId == sessionId {
-                        self?.activeSessionId = nil
-                        self?.dataStream = nil
+            if let error = error {
+                NSLog("destroy_session send error: \(error)")
+                self?.handleControlStreamError()
+                return
+            }
+            stream.receiveControlMessage { result in
+                switch result {
+                case .success:
+                    Task { @MainActor in
+                        if self?.activeSessionId == sessionId {
+                            self?.activeSessionId = nil
+                            self?.dataStream = nil
+                        }
+                        self?.listSessions()
                     }
-                    self?.listSessions()
+                case .failure(let error):
+                    NSLog("destroy_session receive error: \(error)")
+                    self?.handleControlStreamError()
                 }
             }
         }
