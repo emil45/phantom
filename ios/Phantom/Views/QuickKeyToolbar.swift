@@ -37,11 +37,12 @@ struct QuickKeyToolbar: View {
         .init("ctrl", bytes: [], wide: true),
         .init("alt", bytes: []),
         .init("^C", bytes: [0x03]),
+        .init("paste", bytes: [], wide: true),
         .init("|", input: "|"),
         .init("/", input: "/"),
-        .init("?", input: "?"),
         .init("~", input: "~"),
         .init("-", input: "-"),
+        .init("?", input: "?"),
     ]
 
     @State private var ctrlActive = false
@@ -77,6 +78,8 @@ struct QuickKeyToolbar: View {
                                     isActive: $altActive,
                                     isWide: key.isWide
                                 )
+                            } else if key.label == "paste" {
+                                PasteKeyButton(onPress: onKeyPress)
                             } else {
                                 QuickKeyButton(key: key) { data in
                                     if ctrlActive {
@@ -112,7 +115,6 @@ struct QuickKeyButton: View {
 
     @State private var isPressed = false
     @Environment(\.phantomColors) private var colors
-    private let haptic = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         Text(key.label)
@@ -129,14 +131,13 @@ struct QuickKeyButton: View {
                     .onChanged { _ in
                         guard !isPressed else { return }
                         isPressed = true
-                        haptic.impactOccurred()
+                        PhantomHaptic.keyPress()
                         onPress(key.input)
                     }
                     .onEnded { _ in
                         withAnimation(.subtle) { isPressed = false }
                     }
             )
-            .onAppear { haptic.prepare() }
     }
 }
 
@@ -149,7 +150,6 @@ struct ModifierKeyButton: View {
     let isWide: Bool
 
     @Environment(\.phantomColors) private var colors
-    private let haptic = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         Text(label)
@@ -162,9 +162,45 @@ struct ModifierKeyButton: View {
                     .fill(isActive ? colors.accent : colors.elevated)
             )
             .onTapGesture {
-                haptic.impactOccurred()
+                PhantomHaptic.modifierToggle()
                 isActive.toggle()
             }
-            .onAppear { haptic.prepare() }
+    }
+}
+
+// MARK: - Paste Key
+
+/// Reads clipboard and sends as input.
+struct PasteKeyButton: View {
+    let onPress: (Data) -> Void
+
+    @State private var isPressed = false
+    @Environment(\.phantomColors) private var colors
+
+    var body: some View {
+        Text("paste")
+            .font(PhantomFont.keyLabel)
+            .foregroundStyle(isPressed ? colors.accent : colors.textPrimary)
+            .padding(.horizontal, PhantomSpacing.md)
+            .padding(.vertical, PhantomSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: PhantomRadius.key)
+                    .fill(isPressed ? colors.accent.opacity(0.15) : colors.elevated)
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !isPressed else { return }
+                        isPressed = true
+                        PhantomHaptic.keyPress()
+                        if let string = UIPasteboard.general.string,
+                           let data = string.data(using: .utf8) {
+                            onPress(data)
+                        }
+                    }
+                    .onEnded { _ in
+                        withAnimation(.subtle) { isPressed = false }
+                    }
+            )
     }
 }

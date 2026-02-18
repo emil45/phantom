@@ -1,8 +1,7 @@
 import SwiftUI
 import SwiftTerm
 
-/// Theme picker presented as a bottom sheet with card previews.
-/// Each card shows a mini terminal preview with the theme's actual colors.
+/// Theme picker with real terminal content previews and font size controls.
 struct ThemePickerView: View {
     let dataSource: TerminalDataSource
     @Environment(\.dismiss) private var dismiss
@@ -17,26 +16,12 @@ struct ThemePickerView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                // Font size controls
-                fontSizeControls
-                    .padding(.horizontal, PhantomSpacing.md)
-                    .padding(.top, PhantomSpacing.sm)
-
-                // Theme grid
-                LazyVGrid(columns: columns, spacing: PhantomSpacing.sm) {
-                    ForEach(TerminalTheme.allThemes) { theme in
-                        ThemeCard(
-                            theme: theme,
-                            isSelected: theme.id == dataSource.currentThemeId,
-                            onSelect: {
-                                dataSource.applyTheme(theme)
-                            }
-                        )
-                    }
+                VStack(spacing: PhantomSpacing.lg) {
+                    fontSizeControls
+                    themeGrid
                 }
                 .padding(.horizontal, PhantomSpacing.md)
-                .padding(.top, PhantomSpacing.sm)
-                .padding(.bottom, PhantomSpacing.lg)
+                .padding(.vertical, PhantomSpacing.sm)
             }
             .background(colors.base)
             .navigationTitle("Appearance")
@@ -69,6 +54,12 @@ struct ThemePickerView: View {
                     )
             }
 
+            // Current size display
+            Text("\(Int(dataSource.terminalView.font.pointSize))pt")
+                .font(PhantomFont.captionMono)
+                .foregroundStyle(colors.textSecondary)
+                .frame(width: 44)
+
             Button {
                 dataSource.adjustFontSize(delta: 1)
             } label: {
@@ -84,6 +75,22 @@ struct ThemePickerView: View {
             }
         }
     }
+
+    // MARK: - Theme Grid
+
+    private var themeGrid: some View {
+        LazyVGrid(columns: columns, spacing: PhantomSpacing.sm) {
+            ForEach(TerminalTheme.allThemes) { theme in
+                ThemeCard(
+                    theme: theme,
+                    isSelected: theme.id == dataSource.currentThemeId,
+                    onSelect: {
+                        dataSource.applyTheme(theme)
+                    }
+                )
+            }
+        }
+    }
 }
 
 // MARK: - Theme Card
@@ -96,7 +103,7 @@ private struct ThemeCard: View {
     var body: some View {
         Button(action: onSelect) {
             VStack(spacing: PhantomSpacing.xs) {
-                // Mini terminal preview
+                // Mini terminal with real-looking content
                 terminalPreview
                     .frame(height: 72)
                     .clipShape(RoundedRectangle(cornerRadius: PhantomRadius.key))
@@ -108,47 +115,68 @@ private struct ThemeCard: View {
                             )
                     )
 
-                // Theme name
                 Text(theme.name)
                     .font(PhantomFont.caption)
-                    .foregroundStyle(isSelected ? Color(theme.cursor) : Color(hex: 0x8B95A5))
+                    .foregroundStyle(isSelected ? Color(theme.cursor) : .secondary)
                     .lineLimit(1)
             }
         }
         .buttonStyle(.plain)
     }
 
-    /// Mini terminal preview showing simulated content lines.
+    /// Real terminal content preview using theme colors.
     private var terminalPreview: some View {
         ZStack(alignment: .topLeading) {
-            // Background
             Color(theme.background)
 
-            // Simulated terminal lines
-            VStack(alignment: .leading, spacing: 3) {
-                previewLine(ansiColor(2, fallback: theme.foreground), width: 0.7)
-                previewLine(Color(theme.foreground), width: 0.5)
-                previewLine(ansiColor(4, fallback: theme.cursor), width: 0.6)
-                previewLine(Color(theme.foreground), width: 0.4)
-                previewLine(ansiColor(3, fallback: theme.foreground), width: 0.55)
+            VStack(alignment: .leading, spacing: 2) {
+                // Simulated terminal lines with real-looking content
+                previewLine {
+                    Text("$ ")
+                        .foregroundStyle(ansiColor(2))
+                    + Text("ls -la")
+                        .foregroundStyle(Color(theme.foreground))
+                }
+                previewLine {
+                    Text("drwxr-xr-x ")
+                        .foregroundStyle(Color(theme.foreground).opacity(0.7))
+                    + Text("src/")
+                        .foregroundStyle(ansiColor(4))
+                }
+                previewLine {
+                    Text("-rw-r--r-- ")
+                        .foregroundStyle(Color(theme.foreground).opacity(0.7))
+                    + Text("main.rs")
+                        .foregroundStyle(Color(theme.foreground))
+                }
+                previewLine {
+                    Text("$ ")
+                        .foregroundStyle(ansiColor(2))
+                    + Text("git status")
+                        .foregroundStyle(Color(theme.foreground))
+                }
+                previewLine {
+                    Text("On branch ")
+                        .foregroundStyle(Color(theme.foreground).opacity(0.7))
+                    + Text("main")
+                        .foregroundStyle(ansiColor(3))
+                }
             }
             .padding(PhantomSpacing.xs)
         }
     }
 
-    private func ansiColor(_ index: Int, fallback: UIColor) -> SwiftUI.Color {
-        guard let ansi = theme.ansiColors, index < ansi.count else {
-            return SwiftUI.Color(fallback)
-        }
-        return SwiftUI.Color(UIColor(swiftTermColor: ansi[index]))
+    private func previewLine<C: View>(@ViewBuilder content: () -> C) -> some View {
+        content()
+            .font(.system(size: 6.5, design: .monospaced))
+            .lineLimit(1)
     }
 
-    private func previewLine(_ color: SwiftUI.Color, width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 1.5)
-            .fill(color.opacity(0.8))
-            .frame(height: 3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .scaleEffect(x: width, y: 1, anchor: .leading)
+    private func ansiColor(_ index: Int) -> SwiftUI.Color {
+        guard let ansi = theme.ansiColors, index < ansi.count else {
+            return SwiftUI.Color(theme.foreground)
+        }
+        return SwiftUI.Color(UIColor(swiftTermColor: ansi[index]))
     }
 }
 

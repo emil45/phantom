@@ -1,90 +1,231 @@
 import SwiftUI
 import CodeScanner
 
-/// QR code scanner + manual pairing entry.
-/// Styled with Phantom design tokens for a dark, tool-like onboarding feel.
+/// Multi-step onboarding: Welcome -> QR Scanner -> Success.
+/// Clean, focused, one action per screen.
 struct PairingView: View {
     @ObservedObject var reconnectManager: ReconnectManager
+    @State private var step: OnboardingStep = .welcome
     @State private var showManualEntry = false
+    @State private var errorMessage: String?
+    @State private var pairedServerName: String?
+
+    // Manual entry fields
     @State private var manualHost = ""
     @State private var manualPort = "4433"
     @State private var manualToken = ""
     @State private var manualFingerprint = ""
-    @State private var errorMessage: String?
 
     private let colors = PhantomColors.defaultDark
+
+    private enum OnboardingStep {
+        case welcome
+        case scanning
+        case connecting
+        case success
+    }
 
     var body: some View {
         ZStack {
             colors.base.ignoresSafeArea()
 
-            VStack(spacing: PhantomSpacing.lg) {
-                Spacer()
+            VStack(spacing: 0) {
+                switch step {
+                case .welcome:
+                    welcomeStep
+                        .transition(.asymmetric(
+                            insertion: .opacity,
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        ))
+                case .scanning:
+                    scanningStep
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        ))
+                case .connecting:
+                    connectingStep
+                        .transition(.opacity)
+                case .success:
+                    successStep
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.9).combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                }
+            }
+            .animation(.sessionSwitch, value: step)
+        }
+        .sheet(isPresented: $showManualEntry) {
+            manualEntrySheet
+        }
+        .onChange(of: reconnectManager.state) { newState in
+            handleStateChange(newState)
+        }
+    }
 
-                // Logo area
-                VStack(spacing: PhantomSpacing.sm) {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 40, weight: .light))
-                        .foregroundStyle(colors.accent)
+    // MARK: - Welcome Step
 
-                    Text("Phantom")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(colors.textPrimary)
+    private var welcomeStep: some View {
+        VStack(spacing: PhantomSpacing.lg) {
+            Spacer()
 
-                    Text("Scan the QR code shown by\n**phantom pair** on your Mac")
-                        .font(PhantomFont.secondaryLabel)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(colors.textSecondary)
+            VStack(spacing: PhantomSpacing.md) {
+                Image(systemName: "terminal.fill")
+                    .font(.system(size: 56, weight: .light))
+                    .foregroundStyle(colors.accent)
+
+                Text("Phantom")
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .foregroundStyle(colors.textPrimary)
+
+                Text("Secure terminal access to your Mac")
+                    .font(PhantomFont.body)
+                    .foregroundStyle(colors.textSecondary)
+            }
+
+            Spacer()
+
+            VStack(spacing: PhantomSpacing.md) {
+                Button {
+                    withAnimation(.sessionSwitch) { step = .scanning }
+                } label: {
+                    Text("Pair with Mac")
+                        .font(PhantomFont.headline)
+                        .foregroundStyle(colors.base)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, PhantomSpacing.md)
+                        .background(colors.accent, in: Capsule())
                 }
 
-                // QR Scanner
+                Text("Run `phantom pair` on your Mac first")
+                    .font(PhantomFont.captionMono)
+                    .foregroundStyle(colors.textSecondary.opacity(0.6))
+            }
+            .padding(.horizontal, PhantomSpacing.safe)
+            .padding(.bottom, PhantomSpacing.xl)
+        }
+    }
+
+    // MARK: - Scanning Step
+
+    private var scanningStep: some View {
+        VStack(spacing: 0) {
+            // Scanner — fills most of the screen
+            ZStack {
                 CodeScannerView(
                     codeTypes: [.qr],
                     simulatedData: "{\"host\":\"127.0.0.1\",\"port\":4433,\"fp\":\"lJEsdZhFfnLYkFwqJJX+9BzNiQ8T2ZRVROKTVJOIlEA=\",\"tok\":\"p30AAk7atHE3utYLn6RZFD1x4o4Oui5iTg0eHxzToSg\",\"name\":\"Test Mac\",\"v\":1}",
                     completion: handleScan
                 )
-                .frame(height: 240)
-                .clipShape(RoundedRectangle(cornerRadius: PhantomRadius.card))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PhantomRadius.card)
-                        .stroke(colors.elevated, lineWidth: 1)
-                )
-                .padding(.horizontal, PhantomSpacing.lg)
+
+                // Viewfinder overlay
+                RoundedRectangle(cornerRadius: PhantomRadius.card)
+                    .stroke(colors.accent.opacity(0.5), lineWidth: 2)
+                    .frame(width: 240, height: 240)
+            }
+            .frame(maxHeight: .infinity)
+            .clipped()
+
+            // Bottom panel
+            VStack(spacing: PhantomSpacing.md) {
+                Text("Scan the QR code from `phantom pair`")
+                    .font(PhantomFont.body)
+                    .foregroundStyle(colors.textPrimary)
+                    .multilineTextAlignment(.center)
 
                 if let error = errorMessage {
                     Text(error)
                         .font(PhantomFont.caption)
-                        .foregroundStyle(Color(hex: 0xBF616A))
-                        .padding(.horizontal, PhantomSpacing.md)
+                        .foregroundStyle(colors.statusError)
+                        .multilineTextAlignment(.center)
+                        .transition(.opacity)
                 }
 
-                if reconnectManager.state == .connecting || reconnectManager.state == .authenticating {
-                    HStack(spacing: PhantomSpacing.xs) {
-                        ProgressView()
-                            .tint(colors.accent)
-                        Text("Connecting...")
-                            .font(PhantomFont.secondaryLabel)
-                            .foregroundStyle(colors.textSecondary)
-                    }
-                }
-
-                Spacer()
-
-                // Manual entry button
                 Button {
                     showManualEntry = true
                 } label: {
-                    Text("Enter manually instead")
+                    Text("Enter manually")
                         .font(PhantomFont.secondaryLabel)
                         .foregroundStyle(colors.textSecondary)
                 }
-                .padding(.bottom, PhantomSpacing.lg)
+
+                Button {
+                    withAnimation(.sessionSwitch) { step = .welcome }
+                } label: {
+                    Text("Back")
+                        .font(PhantomFont.secondaryLabel)
+                        .foregroundStyle(colors.textSecondary.opacity(0.6))
+                }
             }
-        }
-        .sheet(isPresented: $showManualEntry) {
-            manualEntrySheet
+            .padding(.vertical, PhantomSpacing.lg)
+            .padding(.horizontal, PhantomSpacing.safe)
+            .background(colors.surface)
         }
     }
+
+    // MARK: - Connecting Step
+
+    private var connectingStep: some View {
+        VStack(spacing: PhantomSpacing.lg) {
+            Spacer()
+
+            VStack(spacing: PhantomSpacing.md) {
+                ProgressView()
+                    .tint(colors.accent)
+                    .scaleEffect(1.2)
+
+                Text("Connecting\u{2026}")
+                    .font(PhantomFont.headline)
+                    .foregroundStyle(colors.textPrimary)
+
+                if let name = pairedServerName {
+                    Text(name)
+                        .font(PhantomFont.captionMono)
+                        .foregroundStyle(colors.textSecondary)
+                }
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Success Step
+
+    private var successStep: some View {
+        VStack(spacing: PhantomSpacing.lg) {
+            Spacer()
+
+            VStack(spacing: PhantomSpacing.md) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(colors.accent)
+                    .symbolEffect(.bounce, value: step == .success)
+
+                Text("Connected")
+                    .font(PhantomFont.title)
+                    .foregroundStyle(colors.textPrimary)
+
+                if let name = pairedServerName {
+                    Text(name)
+                        .font(PhantomFont.body)
+                        .foregroundStyle(colors.textSecondary)
+                }
+
+                if let fp = reconnectManager.deviceStore.serverFingerprint {
+                    Text(formatFingerprint(fp))
+                        .font(PhantomFont.captionMono)
+                        .foregroundStyle(colors.textSecondary.opacity(0.5))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, PhantomSpacing.xxs)
+                }
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Manual Entry Sheet
 
     private var manualEntrySheet: some View {
         NavigationStack {
@@ -101,7 +242,7 @@ struct PairingView: View {
                         if let portError = portValidationError {
                             Text(portError)
                                 .font(PhantomFont.caption)
-                                .foregroundStyle(Color(hex: 0xBF616A))
+                                .foregroundStyle(colors.statusError)
                         }
                     }
                     Section("Pairing") {
@@ -132,6 +273,8 @@ struct PairingView: View {
                         showManualEntry = false
                         let port = UInt16(manualPort) ?? 4433
                         let fp = manualFingerprint.isEmpty ? nil : manualFingerprint
+                        pairedServerName = manualHost
+                        withAnimation(.sessionSwitch) { step = .connecting }
                         reconnectManager.connectForPairing(
                             host: manualHost.trimmingCharacters(in: .whitespaces),
                             port: port,
@@ -143,6 +286,49 @@ struct PairingView: View {
                     .disabled(!isManualFormValid)
                 }
             }
+        }
+    }
+
+    // MARK: - Logic
+
+    private func handleScan(result: Result<ScanResult, ScanError>) {
+        switch result {
+        case .success(let scan):
+            guard let payload = PairingPayload.decode(from: scan.string) else {
+                errorMessage = "Invalid QR code \u{2014} scan the code from phantom pair"
+                return
+            }
+            errorMessage = nil
+            pairedServerName = payload.serverName
+            withAnimation(.sessionSwitch) { step = .connecting }
+            reconnectManager.connectForPairing(
+                host: payload.host,
+                port: payload.port,
+                fingerprint: payload.fingerprint,
+                token: payload.token,
+                serverName: payload.serverName
+            )
+        case .failure:
+            errorMessage = "Camera failed \u{2014} try entering details manually"
+        }
+    }
+
+    private func handleStateChange(_ newState: ConnectionState) {
+        switch newState {
+        case .connected:
+            PhantomHaptic.pairingSuccess()
+            withAnimation(.sessionSwitch) { step = .success }
+            // Auto-dismiss after brief pause
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                // The RootView will switch to terminal view when isPaired becomes true
+            }
+        case .disconnected:
+            if step == .connecting {
+                withAnimation(.sessionSwitch) { step = .scanning }
+                errorMessage = "Connection failed \u{2014} check that phantom pair is running"
+            }
+        default:
+            break
         }
     }
 
@@ -160,23 +346,13 @@ struct PairingView: View {
         return nil
     }
 
-    private func handleScan(result: Result<ScanResult, ScanError>) {
-        switch result {
-        case .success(let scan):
-            guard let payload = PairingPayload.decode(from: scan.string) else {
-                errorMessage = "Invalid QR code \u{2014} make sure you\u{2019}re scanning the code from phantom pair"
-                return
-            }
-            errorMessage = nil
-            reconnectManager.connectForPairing(
-                host: payload.host,
-                port: payload.port,
-                fingerprint: payload.fingerprint,
-                token: payload.token,
-                serverName: payload.serverName
-            )
-        case .failure:
-            errorMessage = "Camera scan failed \u{2014} try entering details manually"
+    private func formatFingerprint(_ fp: String) -> String {
+        let upper = fp.prefix(24).uppercased()
+        var result = ""
+        for (i, char) in upper.enumerated() {
+            if i > 0 && i % 4 == 0 { result += " " }
+            result.append(char)
         }
+        return result
     }
 }

@@ -11,6 +11,10 @@ enum PhantomSpacing {
     static let md: CGFloat = 16
     static let lg: CGFloat = 24
     static let xl: CGFloat = 32
+    /// Section separation, large gaps.
+    static let xxl: CGFloat = 48
+    /// Safe inset from screen edge (matches Apple HIG).
+    static let safe: CGFloat = 20
 }
 
 // MARK: - Corner Radii
@@ -26,22 +30,32 @@ enum PhantomRadius {
 
 // MARK: - Typography
 
+/// Typography system using Dynamic Type for chrome, monospaced for terminal.
+/// Chrome uses SF Pro Rounded for warmth; terminal uses system monospace.
 enum PhantomFont {
-    /// Terminal content font (monospace).
+    /// Terminal content font (monospace, fixed size — does not scale with Dynamic Type).
     static func terminal(size: CGFloat = 14) -> UIFont {
         .monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
-    /// Chrome UI labels (SF Pro).
-    static let primaryLabel = Font.system(size: 15, weight: .medium)
-    /// Secondary chrome labels.
-    static let secondaryLabel = Font.system(size: 13, weight: .regular)
-    /// Tertiary labels, captions.
-    static let caption = Font.system(size: 11, weight: .regular)
+    // MARK: Chrome UI (SF Pro Rounded, Dynamic Type)
+
+    /// Screen titles, hero text.
+    static let title = Font.system(.title3, design: .rounded, weight: .semibold)
+    /// Primary labels, headings.
+    static let headline = Font.system(.headline, design: .rounded, weight: .medium)
+    /// Body text, descriptions.
+    static let body = Font.system(.subheadline, design: .rounded, weight: .regular)
+    /// Secondary labels, subtitles.
+    static let secondaryLabel = Font.system(.subheadline, design: .rounded, weight: .regular)
+    /// Captions, tertiary information.
+    static let caption = Font.system(.caption, design: .rounded, weight: .regular)
+    /// Monospaced captions (fingerprints, IDs, session names).
+    static let captionMono = Font.system(.caption, design: .monospaced, weight: .medium)
     /// Toolbar key labels (monospace for chrome keys).
-    static let keyLabel = Font.system(size: 13, weight: .medium, design: .monospaced)
+    static let keyLabel = Font.system(.footnote, design: .monospaced, weight: .medium)
     /// Section headers.
-    static let sectionHeader = Font.system(size: 13, weight: .semibold)
+    static let sectionHeader = Font.system(.caption, design: .rounded, weight: .semibold)
 }
 
 // MARK: - Animation
@@ -53,6 +67,12 @@ extension Animation {
     static let stateChange = Animation.easeInOut(duration: 0.15)
     /// Micro-interactions (press highlight release).
     static let subtle = Animation.easeOut(duration: 0.12)
+    /// Springy feedback for user-initiated actions (drags, flicks).
+    static let springy = Animation.spring(response: 0.35, dampingFraction: 0.7)
+    /// Session switching, tab transitions.
+    static let sessionSwitch = Animation.interactiveSpring(response: 0.3, dampingFraction: 0.85)
+    /// Staggered appearance with slight delay.
+    static let appear = Animation.easeOut(duration: 0.2).delay(0.05)
 }
 
 // MARK: - Chrome Colors (derived from terminal theme)
@@ -74,6 +94,15 @@ struct PhantomColors {
     let accent: Color
     /// Separator lines.
     let separator: Color
+
+    // MARK: Semantic Status Colors
+
+    /// Connected, success.
+    var statusConnected: Color { accent }
+    /// Warning, in-progress, transient states.
+    var statusWarning: Color { Color(uiColor: .systemYellow) }
+    /// Disconnected, error.
+    var statusError: Color { Color(uiColor: .systemRed) }
 
     /// Derive chrome colors from a TerminalTheme.
     init(from theme: TerminalTheme) {

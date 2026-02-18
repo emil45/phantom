@@ -1,106 +1,145 @@
 import SwiftUI
 
-/// Lists active sessions with create/destroy controls.
-/// Styled with design tokens: session rows as subtle cards on dark background.
-struct SessionListView: View {
+/// Bottom sheet for managing sessions and accessing settings.
+/// Presented from the terminal via the session pill.
+struct SessionsSheet: View {
     @ObservedObject var reconnectManager: ReconnectManager
     let dataSource: TerminalDataSource
-    @State private var navigateToTerminal = false
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.phantomColors) private var colors
 
     var body: some View {
-        ZStack {
-            colors.base.ignoresSafeArea()
-
+        NavigationStack {
             List {
-                Section {
-                    ForEach(reconnectManager.sessions) { session in
-                        Button {
-                            reconnectManager.attachSession(session.id)
-                            navigateToTerminal = true
-                        } label: {
-                            sessionRow(session)
-                        }
-                        .listRowBackground(colors.surface)
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                reconnectManager.destroySession(session.id)
-                            } label: {
-                                Label("Destroy", systemImage: "trash")
-                            }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Sessions")
-                            .font(PhantomFont.sectionHeader)
-                            .foregroundStyle(colors.textSecondary)
-                        Spacer()
-                        connectionBadge
-                    }
-                    .textCase(nil)
-                }
+                // Server info
+                serverSection
 
-                if reconnectManager.sessions.isEmpty && reconnectManager.state.isUsable {
-                    Section {
-                        VStack(spacing: PhantomSpacing.sm) {
-                            Image(systemName: "terminal")
-                                .font(.system(size: 32))
-                                .foregroundStyle(colors.textSecondary.opacity(0.5))
-                            Text("No active sessions")
-                                .font(PhantomFont.secondaryLabel)
-                                .foregroundStyle(colors.textSecondary)
-                            Text("Tap + to create one")
-                                .font(PhantomFont.caption)
-                                .foregroundStyle(colors.textSecondary.opacity(0.6))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, PhantomSpacing.xl)
-                    }
-                    .listRowBackground(Color.clear)
-                }
+                // Sessions
+                sessionsSection
+
+                // New session
+                newSessionSection
             }
             .scrollContentBackground(.hidden)
-        }
-        .navigationTitle(reconnectManager.deviceStore.serverName ?? "Phantom")
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    reconnectManager.createSession(rows: 24, cols: 80)
-                    navigateToTerminal = true
-                } label: {
-                    Image(systemName: "plus")
+            .background(colors.base.opacity(0.5))
+            .navigationTitle("Sessions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        SettingsView(
+                            reconnectManager: reconnectManager,
+                            dataSource: dataSource
+                        )
+                        .environment(\.phantomColors, colors)
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(colors.textSecondary)
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
                         .foregroundStyle(colors.accent)
                 }
-                .disabled(!reconnectManager.state.isUsable)
             }
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button {
-                    reconnectManager.removeDeviceAndDisconnect()
-                } label: {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .foregroundStyle(colors.textSecondary)
+            .onAppear {
+                if reconnectManager.state.isUsable {
+                    reconnectManager.listSessions()
                 }
             }
-        }
-        .refreshable {
-            reconnectManager.listSessions()
-        }
-        .onAppear {
-            if reconnectManager.state.isUsable {
+            .refreshable {
                 reconnectManager.listSessions()
             }
         }
-        .navigationDestination(isPresented: $navigateToTerminal) {
-            TerminalScreen(
-                reconnectManager: reconnectManager,
-                dataSource: dataSource,
-                onDetach: { navigateToTerminal = false }
-            )
-            .navigationBarBackButtonHidden(true)
-            .toolbar(.hidden, for: .navigationBar)
-            .environment(\.phantomColors, PhantomColors(from: TerminalTheme.saved))
+    }
+
+    // MARK: - Server Info
+
+    private var serverSection: some View {
+        Section {
+            HStack(spacing: PhantomSpacing.sm) {
+                Image(systemName: "desktopcomputer")
+                    .font(.title2)
+                    .foregroundStyle(colors.accent)
+                    .frame(width: 36)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(reconnectManager.deviceStore.serverName ?? "Mac")
+                        .font(PhantomFont.headline)
+                    Text(serverAddress)
+                        .font(PhantomFont.captionMono)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                HStack(spacing: PhantomSpacing.xxs) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                    Text(reconnectManager.state.statusLabel)
+                        .font(PhantomFont.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, PhantomSpacing.xxs)
+        }
+    }
+
+    // MARK: - Sessions List
+
+    private var sessionsSection: some View {
+        Section {
+            if reconnectManager.sessions.isEmpty && reconnectManager.state.isUsable {
+                emptyState
+            } else {
+                ForEach(reconnectManager.sessions) { session in
+                    Button {
+                        PhantomHaptic.sessionSwitch()
+                        reconnectManager.detachSession()
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            reconnectManager.attachSession(session.id)
+                        }
+                    } label: {
+                        sessionRow(session)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            reconnectManager.destroySession(session.id)
+                        } label: {
+                            Label("End", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Text("Active Sessions")
+                    .font(PhantomFont.sectionHeader)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(reconnectManager.sessions.filter(\.alive).count)")
+                    .font(PhantomFont.captionMono)
+                    .foregroundStyle(.secondary)
+            }
+            .textCase(nil)
+        }
+    }
+
+    // MARK: - New Session
+
+    private var newSessionSection: some View {
+        Section {
+            Button {
+                reconnectManager.createSession(rows: 24, cols: 80)
+                dismiss()
+            } label: {
+                Label("New Session", systemImage: "plus")
+                    .font(PhantomFont.headline)
+                    .foregroundStyle(colors.accent)
+            }
+            .disabled(!reconnectManager.state.isUsable)
         }
     }
 
@@ -108,7 +147,6 @@ struct SessionListView: View {
 
     private func sessionRow(_ session: SessionInfo) -> some View {
         HStack(spacing: PhantomSpacing.sm) {
-            // Shell icon
             Image(systemName: "terminal")
                 .font(.system(size: 14))
                 .foregroundStyle(session.alive ? colors.accent : colors.textSecondary)
@@ -120,26 +158,23 @@ struct SessionListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.shell.map { ($0 as NSString).lastPathComponent } ?? "shell")
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
+                    .font(.system(.subheadline, design: .monospaced, weight: .medium))
                     .foregroundStyle(colors.textPrimary)
-                Text(session.id.prefix(12).description)
-                    .font(PhantomFont.caption)
-                    .foregroundStyle(colors.textSecondary)
+                Text(String(session.id.prefix(12)))
+                    .font(PhantomFont.captionMono)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
 
             HStack(spacing: PhantomSpacing.xs) {
-                if session.attached {
-                    Text("attached")
+                if session.id == reconnectManager.activeSessionId {
+                    Text("active")
                         .font(PhantomFont.caption)
                         .foregroundStyle(colors.accent)
                         .padding(.horizontal, PhantomSpacing.xs)
                         .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(colors.accent.opacity(0.12))
-                        )
+                        .background(Capsule().fill(colors.accent.opacity(0.12)))
                 }
                 Circle()
                     .fill(session.alive ? colors.accent : colors.textSecondary.opacity(0.3))
@@ -149,24 +184,38 @@ struct SessionListView: View {
         .padding(.vertical, PhantomSpacing.xxs)
     }
 
-    // MARK: - Connection Badge
+    // MARK: - Empty State
 
-    private var connectionBadge: some View {
-        HStack(spacing: PhantomSpacing.xxs) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 6, height: 6)
-            Text(reconnectManager.state.statusLabel)
+    private var emptyState: some View {
+        VStack(spacing: PhantomSpacing.sm) {
+            Image(systemName: "terminal")
+                .font(.system(size: 28))
+                .foregroundStyle(colors.textSecondary.opacity(0.4))
+            Text("No active sessions")
+                .font(PhantomFont.secondaryLabel)
+                .foregroundStyle(.secondary)
+            Text("Create one to get started")
                 .font(PhantomFont.caption)
-                .foregroundStyle(statusColor)
+                .foregroundStyle(.tertiary)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, PhantomSpacing.xl)
+        .listRowBackground(Color.clear)
+    }
+
+    // MARK: - Computed
+
+    private var serverAddress: String {
+        let host = reconnectManager.deviceStore.serverHost ?? "unknown"
+        let port = reconnectManager.deviceStore.serverPort
+        return "\(host):\(port)"
     }
 
     private var statusColor: Color {
         switch reconnectManager.state {
-        case .connected: return colors.accent
-        case .disconnected: return Color(hex: 0xBF616A)
-        default: return Color(hex: 0xEBCB8B)
+        case .connected: return colors.statusConnected
+        case .disconnected: return colors.statusError
+        default: return colors.statusWarning
         }
     }
 }

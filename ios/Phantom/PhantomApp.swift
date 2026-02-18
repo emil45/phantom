@@ -20,32 +20,52 @@ struct PhantomApp: App {
                 .environment(\.phantomColors, PhantomColors(from: TerminalTheme.saved))
                 .onChange(of: scenePhase) { newPhase in
                     reconnectManager.handleScenePhase(newPhase)
+                    if newPhase == .active {
+                        PhantomHaptic.prepare()
+                    }
                 }
                 .preferredColorScheme(.dark)
         }
     }
 }
 
-/// Root view: shows PairingView if not paired, otherwise session navigation.
+/// Root view: shows onboarding if not paired, otherwise terminal-first layout.
 struct RootView: View {
     @ObservedObject var reconnectManager: ReconnectManager
     let dataSource: TerminalDataSource
+    @State private var hasAutoCreated = false
 
     var body: some View {
         if reconnectManager.deviceStore.isPaired {
-            NavigationStack {
-                SessionListView(
-                    reconnectManager: reconnectManager,
-                    dataSource: dataSource
-                )
-            }
+            TerminalScreen(
+                reconnectManager: reconnectManager,
+                dataSource: dataSource
+            )
             .onAppear {
                 if reconnectManager.state == .disconnected {
                     reconnectManager.connect()
                 }
             }
+            .onChange(of: reconnectManager.state) { newState in
+                autoCreateFirstSession(state: newState)
+            }
         } else {
             PairingView(reconnectManager: reconnectManager)
+        }
+    }
+
+    /// Auto-create a session when connected with no sessions.
+    private func autoCreateFirstSession(state: ConnectionState) {
+        guard state == .connected,
+              !hasAutoCreated,
+              reconnectManager.sessions.isEmpty,
+              reconnectManager.activeSessionId == nil else { return }
+        hasAutoCreated = true
+        // Brief delay to let session list load
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if reconnectManager.sessions.isEmpty && reconnectManager.activeSessionId == nil {
+                reconnectManager.createSession(rows: 24, cols: 80)
+            }
         }
     }
 }

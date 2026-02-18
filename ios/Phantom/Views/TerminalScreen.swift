@@ -7,94 +7,119 @@ enum ToolbarMode {
     case hidden
 }
 
-/// Full-screen terminal view with session tab bar and keyboard toolbar.
-/// Layout: Terminal (greedy) → SessionTabBar → Toolbar.
-/// Terminal viewport is immovable — all chrome animates around it.
+/// Terminal-first root view. The terminal is always the primary surface.
+/// Sessions and settings are presented as sheets — the terminal never unmounts.
 struct TerminalScreen: View {
     @ObservedObject var reconnectManager: ReconnectManager
     let dataSource: TerminalDataSource
-    let onDetach: () -> Void
     @State private var toolbarMode: ToolbarMode = .quickKeys
     @State private var showThemePicker = false
+    @State private var showSessionsSheet = false
+    @GestureState private var dragOffset: CGFloat = 0
     @Environment(\.phantomColors) private var colors
 
     var body: some View {
         VStack(spacing: 0) {
-            // Zone 1: Terminal — takes all available space, never animates
-            ZStack(alignment: .topTrailing) {
+            // Zone 1: Terminal viewport with overlays
+            ZStack(alignment: .top) {
                 TerminalContainerView(terminalView: dataSource.terminalView)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Connection status pill (only when not connected)
-                if reconnectManager.state != .connected {
-                    statusPill
-                        .padding(PhantomSpacing.sm)
+                // Session pill — top center
+                if reconnectManager.activeSessionId != nil {
+                    SessionPill(
+                        sessions: reconnectManager.sessions,
+                        activeSessionId: reconnectManager.activeSessionId,
+                        connectionState: reconnectManager.state,
+                        onTap: { showSessionsSheet = true }
+                    )
+                    .padding(.top, PhantomSpacing.xs)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                // Connection overlay — centered
+                if !reconnectManager.state.isUsable && reconnectManager.activeSessionId != nil {
+                    ConnectionOverlay(
+                        state: reconnectManager.state,
+                        isBuffering: reconnectManager.activeSessionId != nil
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
             .layoutPriority(1)
+            .gesture(sessionSwipeGesture)
 
-            // Zone 2: Session tab bar
-            SessionTabBar(
-                sessions: reconnectManager.sessions,
-                activeSessionId: reconnectManager.activeSessionId,
-                onSelectSession: { sessionId in
-                    reconnectManager.detachSession()
-                    // Brief delay for stream teardown before reattach
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        reconnectManager.attachSession(sessionId)
-                    }
-                },
-                onCloseSession: { sessionId in
-                    reconnectManager.destroySession(sessionId)
-                },
-                onNewSession: {
-                    reconnectManager.createSession(rows: 24, cols: 80)
-                },
-                onBack: {
-                    reconnectManager.detachSession()
-                    onDetach()
-                }
-            )
-
-            // Zone 3: Keyboard toolbar — animates content, not frame
+            // Zone 2: Keyboard toolbar
             toolbarContent
                 .animation(.panelReveal, value: toolbarMode)
         }
         .background(colors.base)
-        .navigationBarHidden(true)
+        .sheet(isPresented: $showSessionsSheet) {
+            SessionsSheet(
+                reconnectManager: reconnectManager,
+                dataSource: dataSource
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(.ultraThinMaterial)
+            .environment(\.phantomColors, colors)
+        }
         .sheet(isPresented: $showThemePicker) {
             ThemePickerView(dataSource: dataSource)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-    }
-
-    // MARK: - Status Pill
-
-    private var statusPill: some View {
-        HStack(spacing: PhantomSpacing.xs) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-            Text(reconnectManager.state.statusLabel)
-                .font(PhantomFont.caption)
-                .foregroundStyle(colors.textPrimary)
+        .onChange(of: reconnectManager.state) { newState in
+            handleStateChange(newState)
         }
-        .padding(.horizontal, PhantomSpacing.sm)
-        .padding(.vertical, PhantomSpacing.xxs + 2)
-        .background(
-            Capsule()
-                .fill(colors.surface.opacity(0.9))
-        )
     }
 
-    private var statusColor: Color {
-        switch reconnectManager.state {
-        case .connected: return colors.accent
-        case .reconnecting, .connecting, .authenticating, .backgrounded:
-            return Color(hex: 0xEBCB8B)  // Warm amber
+    // MARK: - Session Swipe Gesture
+
+    private var sessionSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 30)
+            .updating($dragOffset) { value, state, _ in
+                state = value.translation.width
+            }
+            .onEnded { value in
+                let sessions = reconnectManager.sessions.filter { $0.alive }
+                guard sessions.count > 1,
+                      let activeId = reconnectManager.activeSessionId,
+                      let currentIndex = sessions.firstIndex(where: { $0.id == activeId }) else { return }
+
+                if value.translation.width < -60 {
+                    // Swipe left — next session
+                    let nextIndex = (currentIndex + 1) % sessions.count
+                    switchToSession(sessions[nextIndex].id)
+                } else if value.translation.width > 60 {
+                    // Swipe right — previous session
+                    let prevIndex = (currentIndex - 1 + sessions.count) % sessions.count
+                    switchToSession(sessions[prevIndex].id)
+                }
+            }
+    }
+
+    private func switchToSession(_ sessionId: String) {
+        PhantomHaptic.sessionSwitch()
+        reconnectManager.detachSession()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            reconnectManager.attachSession(sessionId)
+        }
+    }
+
+    // MARK: - State Changes
+
+    private func handleStateChange(_ newState: ConnectionState) {
+        switch newState {
+        case .connected:
+            PhantomHaptic.connected()
         case .disconnected:
-            return Color(hex: 0xBF616A)  // Muted red
+            if reconnectManager.activeSessionId != nil {
+                PhantomHaptic.disconnected()
+            }
+        default:
+            break
         }
     }
 
