@@ -113,6 +113,7 @@ DMG_PATH="$BUILD_DIR/$DMG_NAME"
 rm -rf "$DMG_STAGING" "$DMG_RW" "$DMG_PATH"
 mkdir -p "$DMG_STAGING"
 cp -R "$APP_PATH" "$DMG_STAGING/"
+rm -f "$DMG_STAGING/Applications"
 ln -s /Applications "$DMG_STAGING/Applications"
 
 # Create read-write HFS+ DMG (HFS+ needed for .DS_Store + background)
@@ -144,13 +145,15 @@ tell application "Finder"
         set viewOptions to the icon view options of container window
         set arrangement of viewOptions to not arranged
         set icon size of viewOptions to 80
+        set shows icon preview of viewOptions to false
         set background picture of viewOptions to file ".background:background.png"
         set position of item "$APP_NAME.app" of container window to {140, 150}
         set position of item "Applications" of container window to {400, 150}
         close
         open
-        update without registering applications
-        delay 2
+        delay 4
+        update
+        delay 1
         close
     end tell
 end tell

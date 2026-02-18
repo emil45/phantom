@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Generate the Phantom app icon — dark rounded rect with a ghost/terminal motif."""
 
-from PIL import Image, ImageDraw, ImageFont
-import math
+from PIL import Image, ImageDraw
 import os
+import shutil
 
 SIZE = 1024
-PADDING = 100  # macOS icon inset from edges
-CORNER = 220   # rounded rect corner radius
+# Keep only a small transparent margin so Finder renders the icon at a
+# native-looking size in DMG/Finder icon views.
+PADDING = 28
+CORNER = 220
 
 def rounded_rect_mask(size, radius):
     """Create an anti-aliased rounded rectangle mask."""
@@ -128,7 +130,6 @@ def generate_icon(output_path):
         gd.line([(inset, y), (SIZE - inset, y)], fill=(255, 255, 255, alpha))
 
     # Mask gradient to rounded rect
-    mask = rounded_rect_mask(SIZE, CORNER)
     # Shift mask to account for padding
     mask_padded = Image.new("L", (SIZE, SIZE), 0)
     inner_size = SIZE - 2 * inset
@@ -164,28 +165,41 @@ def generate_icon(output_path):
 
 
 def create_iconset(png_path, output_dir):
-    """Create .iconset folder with all required sizes."""
+    """Create .iconset folder with Apple's canonical macOS sizes."""
     iconset_dir = os.path.join(output_dir, "AppIcon.iconset")
+    if os.path.isdir(iconset_dir):
+        shutil.rmtree(iconset_dir)
     os.makedirs(iconset_dir, exist_ok=True)
 
-    sizes = [16, 32, 64, 128, 256, 512, 1024]
+    sizes = [16, 32, 128, 256, 512]
     img = Image.open(png_path)
 
     for size in sizes:
         # 1x
         resized = img.resize((size, size), Image.LANCZOS)
-        if size == 1024:
-            resized.save(os.path.join(iconset_dir, f"icon_512x512@2x.png"))
-        else:
-            resized.save(os.path.join(iconset_dir, f"icon_{size}x{size}.png"))
+        resized.save(os.path.join(iconset_dir, f"icon_{size}x{size}.png"))
 
-        # 2x (except 1024 which IS the 512@2x)
-        if size <= 512 and size * 2 <= 1024:
+        # 2x variant (512@2x is the 1024 source image)
+        if size == 512:
+            img.save(os.path.join(iconset_dir, "icon_512x512@2x.png"))
+        else:
             resized2x = img.resize((size * 2, size * 2), Image.LANCZOS)
             resized2x.save(os.path.join(iconset_dir, f"icon_{size}x{size}@2x.png"))
 
     print(f"Iconset created: {iconset_dir}")
     return iconset_dir
+
+
+def create_icns(png_path, icns_path):
+    """Create a multi-size .icns directly with Pillow (no iconutil dependency)."""
+    img = Image.open(png_path).convert("RGBA")
+    img.save(
+        icns_path,
+        format="ICNS",
+        sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)],
+    )
+    print(f"ICNS created: {icns_path}")
+    return icns_path
 
 
 if __name__ == "__main__":
@@ -196,16 +210,15 @@ if __name__ == "__main__":
     png_path = os.path.join(build_dir, "phantom-icon.png")
     generate_icon(png_path)
 
-    iconset_dir = create_iconset(png_path, build_dir)
+    create_iconset(png_path, build_dir)
 
-    # Convert to .icns using iconutil
+    # Convert to .icns directly
     icns_path = os.path.join(build_dir, "AppIcon.icns")
-    os.system(f"iconutil -c icns '{iconset_dir}' -o '{icns_path}'")
-    print(f"ICNS created: {icns_path}")
+    create_icns(png_path, icns_path)
 
     # Copy to macos resources
     resources_dir = os.path.join(project_root, "macos", "PhantomBar", "Resources")
     os.makedirs(resources_dir, exist_ok=True)
     dest = os.path.join(resources_dir, "AppIcon.icns")
-    os.system(f"cp '{icns_path}' '{dest}'")
+    shutil.copy2(icns_path, dest)
     print(f"Copied to: {dest}")
