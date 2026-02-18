@@ -99,7 +99,12 @@ fi
 echo "==> Verifying signature..."
 codesign --verify --verbose "$APP_PATH"
 
-# ─── Step 5: Create DMG ──────────────────────────────────────────────
+# ─── Step 5: Generate DMG background ─────────────────────────────────
+
+echo "==> Generating DMG background..."
+python3 "$SCRIPT_DIR/generate-dmg-background.py"
+
+# ─── Step 6: Create DMG ──────────────────────────────────────────────
 
 echo "==> Creating DMG..."
 DMG_STAGING="$BUILD_DIR/dmg-staging"
@@ -110,15 +115,21 @@ mkdir -p "$DMG_STAGING"
 cp -R "$APP_PATH" "$DMG_STAGING/"
 ln -s /Applications "$DMG_STAGING/Applications"
 
-# Create read-write DMG first so we can style it
+# Create read-write HFS+ DMG (HFS+ needed for .DS_Store + background)
 hdiutil create -volname "$APP_NAME" \
     -srcfolder "$DMG_STAGING" \
     -ov -format UDRW \
+    -fs HFS+ \
+    -size 30m \
     "$DMG_RW"
 
 # Mount it
 MOUNT_DIR=$(hdiutil attach -readwrite -noverify "$DMG_RW" | grep "/Volumes/" | sed 's/.*\/Volumes/\/Volumes/')
 DISK_NAME=$(basename "$MOUNT_DIR")
+
+# Copy background image into hidden folder on DMG
+mkdir "$MOUNT_DIR/.background"
+cp "$BUILD_DIR/dmg-background.png" "$MOUNT_DIR/.background/background.png"
 
 # Apply Finder styling via AppleScript
 echo "==> Styling DMG window (volume: $DISK_NAME)..."
@@ -133,22 +144,20 @@ tell application "Finder"
         set viewOptions to the icon view options of container window
         set arrangement of viewOptions to not arranged
         set icon size of viewOptions to 80
-        set background color of viewOptions to {65535, 65535, 65535}
+        set background picture of viewOptions to file ".background:background.png"
         set position of item "$APP_NAME.app" of container window to {140, 150}
         set position of item "Applications" of container window to {400, 150}
         close
         open
         update without registering applications
-        delay 1
+        delay 2
         close
     end tell
 end tell
 APPLESCRIPT
 
-# Set hidden Finder attributes for window position on open
-SetFile -a C "$MOUNT_DIR" 2>/dev/null || true
-
 # Unmount
+sync
 hdiutil detach "$MOUNT_DIR" -quiet
 
 # Convert to compressed read-only DMG
@@ -158,7 +167,7 @@ rm -rf "$DMG_STAGING"
 
 echo "==> DMG created: $DMG_PATH"
 
-# ─── Step 6: Notarize (optional) ─────────────────────────────────────
+# ─── Step 7: Notarize (optional) ─────────────────────────────────────
 
 if [ -n "$NOTARY_PROFILE" ]; then
     echo "==> Submitting for notarization..."
