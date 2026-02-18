@@ -52,13 +52,13 @@ impl Authenticator {
     }
 
     /// Authenticate a connection via the control stream.
-    /// Returns the device_id on success.
+    /// Returns (device_id, send, recv) on success so the streams can be reused.
     pub async fn handle_auth(
         &self,
-        connection: &Connection,
+        _connection: &Connection,
         mut send: SendStream,
         mut recv: RecvStream,
-    ) -> Result<String> {
+    ) -> Result<(String, SendStream, RecvStream)> {
         // Read length-prefixed JSON auth request
         let msg = read_control_message(&mut recv).await?;
         let req: AuthRequest =
@@ -96,7 +96,7 @@ impl Authenticator {
                     error: None,
                 };
                 write_control_message(&mut send, &resp).await?;
-                return Ok(device_id);
+                return Ok((device_id, send, recv));
             } else {
                 warn!("invalid pairing attempt from {device_id}");
                 self.device_store.record_auth(&device_id, false);
@@ -152,28 +152,9 @@ impl Authenticator {
             .as_ref()
             .context("missing signature in auth response")?;
 
-        // Verify P256 signature.
-        // Try with TLS exporter binding first (challenge || exporter),
-        // then fall back to challenge-only for clients that don't support exporter yet.
-        let mut tls_exporter = vec![0u8; 32];
-        let has_exporter = connection
-            .export_keying_material(&mut tls_exporter, b"phantom-auth", b"")
-            .is_ok();
-
-        let valid = if has_exporter {
-            let mut signed_data = Vec::with_capacity(64);
-            signed_data.extend_from_slice(&challenge_bytes);
-            signed_data.extend_from_slice(&tls_exporter);
-            let with_binding = verify_p256_signature(&stored_key, &signed_data, signature_b64)?;
-            if with_binding {
-                true
-            } else {
-                // Fall back: verify challenge-only (for clients without TLS exporter)
-                verify_p256_signature(&stored_key, &challenge_bytes, signature_b64)?
-            }
-        } else {
-            verify_p256_signature(&stored_key, &challenge_bytes, signature_b64)?
-        };
+        // Verify P256 signature against the challenge bytes.
+        // TODO: add TLS exporter binding once the iOS client supports it.
+        let valid = verify_p256_signature(&stored_key, &challenge_bytes, signature_b64)?;
 
         if valid {
             let result = AuthResult {
@@ -184,7 +165,7 @@ impl Authenticator {
             };
             write_control_message(&mut send, &result).await?;
             self.device_store.record_auth(&device_id, true);
-            Ok(device_id)
+            Ok((device_id, send, recv))
         } else {
             let result = AuthResult {
                 type_: "auth_response".to_string(),

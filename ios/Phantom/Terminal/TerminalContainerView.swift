@@ -7,7 +7,10 @@ struct TerminalContainerView: UIViewRepresentable {
     let terminalView: TerminalView
 
     func makeUIView(context: Context) -> TerminalView {
-        terminalView.translatesAutoresizingMaskIntoConstraints = false
+        // Become first responder after a brief delay to ensure the view is in the hierarchy
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            terminalView.becomeFirstResponder()
+        }
         return terminalView
     }
 

@@ -73,12 +73,14 @@ final class ReconnectManager: ObservableObject {
 
     /// Connect for initial pairing (before server info is persisted).
     func connectForPairing(host: String, port: UInt16, fingerprint: String, token: String, serverName: String) {
+        NSLog("connectForPairing: host=%@, port=%d, fp=%@", host, port, fingerprint)
         state = .connecting
 
         let client = QUICClient(host: host, port: port, fingerprint: fingerprint)
         self.client = client
 
         client.onTunnelReady = { [weak self] in
+            NSLog("connectForPairing: tunnel ready!")
             Task { @MainActor in
                 self?.performPairing(
                     host: host,
@@ -91,12 +93,13 @@ final class ReconnectManager: ObservableObject {
         }
 
         client.onTunnelFailed = { [weak self] error in
+            NSLog("connectForPairing: tunnel FAILED: \(String(describing: error))")
             Task { @MainActor in
-                NSLog("Pairing tunnel failed: \(String(describing: error))")
                 self?.state = .disconnected
             }
         }
 
+        NSLog("connectForPairing: calling client.connect()")
         client.connect()
     }
 
@@ -108,19 +111,13 @@ final class ReconnectManager: ObservableObject {
     // MARK: - Authentication
 
     private func openControlStreamAndAuth() {
-        client?.openStream { [weak self] stream in
-            guard let stream = stream else {
-                Task { @MainActor in
-                    self?.state = .disconnected
-                    self?.scheduleReconnect()
-                }
-                return
-            }
-            Task { @MainActor in
-                self?.controlStream = stream
-                self?.performChallengeAuth(on: stream)
-            }
+        guard let stream = client?.firstStream else {
+            state = .disconnected
+            scheduleReconnect()
+            return
         }
+        controlStream = stream
+        performChallengeAuth(on: stream)
     }
 
     private func performChallengeAuth(on stream: NWConnection) {
@@ -268,19 +265,18 @@ final class ReconnectManager: ObservableObject {
     // MARK: - Pairing
 
     private func performPairing(host: String, port: UInt16, fingerprint: String, token: String, serverName: String) {
-        client?.openStream { [weak self] stream in
-            guard let self = self, let stream = stream else {
-                Task { @MainActor in self?.state = .disconnected }
-                return
-            }
-            Task { @MainActor in
-                self.controlStream = stream
-                self.sendPairingRequest(
-                    on: stream, host: host, port: port,
-                    fingerprint: fingerprint, token: token, serverName: serverName
-                )
-            }
+        NSLog("performPairing: using first stream for pairing")
+        guard let stream = client?.firstStream else {
+            NSLog("performPairing: no first stream available")
+            state = .disconnected
+            return
         }
+        NSLog("performPairing: stream state = \(stream.state)")
+        controlStream = stream
+        sendPairingRequest(
+            on: stream, host: host, port: port,
+            fingerprint: fingerprint, token: token, serverName: serverName
+        )
     }
 
     private func sendPairingRequest(
@@ -300,14 +296,19 @@ final class ReconnectManager: ObservableObject {
             "pairing_token": token,
         ]
 
-        guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else {
+            NSLog("sendPairingRequest: JSON serialization FAILED")
+            return
+        }
+        NSLog("sendPairingRequest: sending %d bytes on stream state=%@", json.count, "\(stream.state)")
 
         stream.sendControlMessage(json) { [weak self] error in
             if let error = error {
-                NSLog("Pairing send error: \(error)")
+                NSLog("sendPairingRequest: send ERROR: \(error)")
                 Task { @MainActor in self?.state = .disconnected }
                 return
             }
+            NSLog("sendPairingRequest: send completed OK, waiting for response")
             // Receive pairing result
             stream.receiveControlMessage { result in
                 switch result {
@@ -342,146 +343,134 @@ final class ReconnectManager: ObservableObject {
     // MARK: - Session Management
 
     func listSessions() {
-        client?.openStream { [weak self] stream in
-            guard let stream = stream else { return }
-            let requestId = generateRequestId()
-            let request: [String: Any] = [
-                "type": "list_sessions",
-                "request_id": requestId,
-            ]
-            guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
-            stream.sendControlMessage(json) { error in
-                if let error = error {
-                    NSLog("list_sessions send error: \(error)")
-                    return
-                }
-                stream.receiveControlMessage { result in
-                    switch result {
-                    case .success(let data):
-                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let sessionsJson = json["sessions"] as? [[String: Any]] {
-                            let sessions = sessionsJson.compactMap { s -> SessionInfo? in
-                                guard let id = s["id"] as? String,
-                                      let alive = s["alive"] as? Bool else { return nil }
-                                return SessionInfo(
-                                    id: id,
-                                    alive: alive,
-                                    createdAt: s["created_at"] as? String ?? "",
-                                    shell: s["shell"] as? String,
-                                    attached: s["attached"] as? Bool ?? false
-                                )
-                            }
-                            Task { @MainActor in
-                                self?.sessions = sessions
-                            }
+        guard let stream = controlStream else { return }
+        let requestId = generateRequestId()
+        let request: [String: Any] = [
+            "type": "list_sessions",
+            "request_id": requestId,
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
+        stream.sendControlMessage(json) { [weak self] error in
+            if let error = error {
+                NSLog("list_sessions send error: \(error)")
+                return
+            }
+            stream.receiveControlMessage { result in
+                switch result {
+                case .success(let data):
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let sessionsJson = json["sessions"] as? [[String: Any]] {
+                        let sessions = sessionsJson.compactMap { s -> SessionInfo? in
+                            guard let id = s["id"] as? String,
+                                  let alive = s["alive"] as? Bool else { return nil }
+                            return SessionInfo(
+                                id: id,
+                                alive: alive,
+                                createdAt: s["created_at"] as? String ?? "",
+                                shell: s["shell"] as? String,
+                                attached: s["attached"] as? Bool ?? false
+                            )
                         }
-                        stream.cancel()
-                    case .failure(let error):
-                        NSLog("list_sessions receive error: \(error)")
-                        stream.cancel()
+                        Task { @MainActor in
+                            self?.sessions = sessions
+                        }
                     }
+                case .failure(let error):
+                    NSLog("list_sessions receive error: \(error)")
                 }
             }
         }
     }
 
     func createSession(rows: UInt16, cols: UInt16) {
-        client?.openStream { [weak self] stream in
-            guard let self = self, let stream = stream else { return }
-            let requestId = generateRequestId()
-            let request: [String: Any] = [
-                "type": "create_session",
-                "request_id": requestId,
-                "rows": rows,
-                "cols": cols,
-            ]
-            guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
-            stream.sendControlMessage(json) { error in
-                if let error = error {
-                    NSLog("create_session send error: \(error)")
-                    return
-                }
-                stream.receiveControlMessage { result in
-                    switch result {
-                    case .success(let data):
-                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let sessionId = json["session_id"] as? String {
-                            Task { @MainActor in
-                                self.activeSessionId = sessionId
-                                self.dataStream = stream
-                                self.startFrameReceiving(on: stream)
-                                self.replayBufferedKeystrokes()
-                            }
+        guard let stream = controlStream else {
+            NSLog("createSession: no control stream!")
+            return
+        }
+        let requestId = generateRequestId()
+        let request: [String: Any] = [
+            "type": "create_session",
+            "request_id": requestId,
+            "rows": rows,
+            "cols": cols,
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
+        stream.sendControlMessage(json) { [weak self] error in
+            if let error = error {
+                NSLog("create_session send error: \(error)")
+                return
+            }
+            stream.receiveControlMessage { result in
+                switch result {
+                case .success(let data):
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let sessionId = json["session_id"] as? String {
+                        Task { @MainActor in
+                            self?.activeSessionId = sessionId
+                            self?.dataStream = stream
+                            self?.startFrameReceiving(on: stream)
+                            self?.replayBufferedKeystrokes()
                         }
-                    case .failure(let error):
-                        NSLog("create_session receive error: \(error)")
-                        stream.cancel()
                     }
+                case .failure(let error):
+                    NSLog("create_session receive error: \(error)")
                 }
             }
         }
     }
 
     func attachSession(_ sessionId: String) {
-        client?.openStream { [weak self] stream in
-            guard let self = self, let stream = stream else { return }
-            let requestId = generateRequestId()
-            let request: [String: Any] = [
-                "type": "attach_session",
-                "request_id": requestId,
-                "session_id": sessionId,
-            ]
-            guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
-            stream.sendControlMessage(json) { error in
-                if let error = error {
-                    NSLog("attach_session send error: \(error)")
-                    return
-                }
-                stream.receiveControlMessage { result in
-                    switch result {
-                    case .success(let data):
-                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           json["type"] as? String == "session_attached" {
-                            Task { @MainActor in
-                                self.activeSessionId = sessionId
-                                self.dataStream?.cancel()
-                                self.dataStream = stream
-                                self.frameDecoder = FrameDecoder()
-                                self.startFrameReceiving(on: stream)
-                                self.replayBufferedKeystrokes()
-                            }
+        guard let stream = controlStream else { return }
+        let requestId = generateRequestId()
+        let request: [String: Any] = [
+            "type": "attach_session",
+            "request_id": requestId,
+            "session_id": sessionId,
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
+        stream.sendControlMessage(json) { [weak self] error in
+            if let error = error {
+                NSLog("attach_session send error: \(error)")
+                return
+            }
+            stream.receiveControlMessage { result in
+                switch result {
+                case .success(let data):
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       json["type"] as? String == "session_attached" {
+                        Task { @MainActor in
+                            self?.activeSessionId = sessionId
+                            self?.dataStream = stream
+                            self?.frameDecoder = FrameDecoder()
+                            self?.startFrameReceiving(on: stream)
+                            self?.replayBufferedKeystrokes()
                         }
-                    case .failure(let error):
-                        NSLog("attach_session receive error: \(error)")
-                        stream.cancel()
                     }
+                case .failure(let error):
+                    NSLog("attach_session receive error: \(error)")
                 }
             }
         }
     }
 
     func destroySession(_ sessionId: String) {
-        client?.openStream { [weak self] stream in
-            guard let stream = stream else { return }
-            let requestId = generateRequestId()
-            let request: [String: Any] = [
-                "type": "destroy_session",
-                "request_id": requestId,
-                "session_id": sessionId,
-            ]
-            guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
-            stream.sendControlMessage(json) { error in
-                if error != nil { return }
-                stream.receiveControlMessage { _ in
-                    stream.cancel()
-                    Task { @MainActor in
-                        if self?.activeSessionId == sessionId {
-                            self?.activeSessionId = nil
-                            self?.dataStream?.cancel()
-                            self?.dataStream = nil
-                        }
-                        self?.listSessions()
+        guard let stream = controlStream else { return }
+        let requestId = generateRequestId()
+        let request: [String: Any] = [
+            "type": "destroy_session",
+            "request_id": requestId,
+            "session_id": sessionId,
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: request) else { return }
+        stream.sendControlMessage(json) { [weak self] error in
+            if error != nil { return }
+            stream.receiveControlMessage { _ in
+                Task { @MainActor in
+                    if self?.activeSessionId == sessionId {
+                        self?.activeSessionId = nil
+                        self?.dataStream = nil
                     }
+                    self?.listSessions()
                 }
             }
         }

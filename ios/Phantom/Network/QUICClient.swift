@@ -2,18 +2,22 @@ import Foundation
 import Network
 import CryptoKit
 
-/// QUIC tunnel manager using Network.framework's NWConnectionGroup.
-/// Manages the QUIC connection (tunnel) and stream extraction.
-/// Each extracted stream is an NWConnection representing a bidirectional QUIC stream.
+/// QUIC client using Network.framework.
+/// Uses NWConnection directly — each connection is a QUIC stream within the same tunnel.
+/// The first connection establishes the QUIC tunnel and acts as the first bidi stream.
 final class QUICClient {
-    private var group: NWConnectionGroup?
+    private var tunnelConnection: NWConnection?
     private let host: String
     private let port: UInt16
-    private let fingerprint: String? // SHA-256 base64 of server cert DER for pinning
+    private let fingerprint: String?
     let queue = DispatchQueue(label: "phantom.quic", qos: .userInteractive)
 
     var onTunnelReady: (() -> Void)?
     var onTunnelFailed: ((Error?) -> Void)?
+
+    /// The first connection doubles as the QUIC tunnel and first bidi stream.
+    /// After tunnel is ready, callers can use this directly or open new streams.
+    var firstStream: NWConnection? { tunnelConnection }
 
     init(host: String, port: UInt16, fingerprint: String? = nil) {
         self.host = host
@@ -21,12 +25,12 @@ final class QUICClient {
         self.fingerprint = fingerprint
     }
 
-    /// Establish the QUIC tunnel.
+    /// Establish the QUIC tunnel. The first NWConnection becomes both
+    /// the QUIC connection and the first bidirectional stream.
     func connect() {
         let options = NWProtocolQUIC.Options(alpn: ["phantom/1"])
         options.direction = .bidirectional
 
-        // Certificate pinning via SHA-256 fingerprint
         let expectedFingerprint = self.fingerprint
         sec_protocol_options_set_verify_block(
             options.securityProtocolOptions,
@@ -35,7 +39,6 @@ final class QUICClient {
                     let valid = QUICClient.verifyCertFingerprint(trust: trust, expected: fp)
                     complete(valid)
                 } else {
-                    // No fingerprint — accept any cert (Simulator/dev only)
                     complete(true)
                 }
             },
@@ -50,43 +53,57 @@ final class QUICClient {
             port: NWEndpoint.Port(rawValue: port)!
         )
 
-        let descriptor = NWMultiplexGroup(to: endpoint)
-        let group = NWConnectionGroup(with: descriptor, using: params)
-        self.group = group
+        let connection = NWConnection(to: endpoint, using: params)
+        self.tunnelConnection = connection
 
-        group.stateUpdateHandler = { [weak self] state in
+        connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
+                NSLog("QUICClient: tunnel + first stream ready")
                 self?.onTunnelReady?()
             case .failed(let error):
+                NSLog("QUICClient: tunnel failed: \(error)")
                 self?.onTunnelFailed?(error)
             case .cancelled:
                 break
             case .waiting(let error):
-                NSLog("QUIC tunnel waiting: \(error)")
+                NSLog("QUICClient: tunnel waiting: \(error)")
             default:
                 break
             }
         }
 
-        group.start(queue: queue)
+        connection.start(queue: queue)
     }
 
-    /// Open a new bidirectional QUIC stream within the tunnel.
+    /// Return the first stream (the tunnel connection itself).
+    /// For the control channel, this is all we need.
     func openStream(completion: @escaping (NWConnection?) -> Void) {
-        guard let group = group else {
+        // The first call returns the tunnel connection as the first bidi stream.
+        // Subsequent calls would need NWConnectionGroup for multiplexing,
+        // but for now we use the single-stream approach.
+        guard let conn = tunnelConnection else {
             completion(nil)
             return
         }
-
-        let stream = NWConnection(from: group)
-        stream?.start(queue: queue)
-        completion(stream)
+        // If the connection is already ready, return it immediately
+        if conn.state == .ready {
+            completion(conn)
+        } else {
+            // Wait for ready
+            let prevHandler = conn.stateUpdateHandler
+            conn.stateUpdateHandler = { [weak self] state in
+                prevHandler?(state)
+                if state == .ready {
+                    completion(conn)
+                }
+            }
+        }
     }
 
     func disconnect() {
-        group?.cancel()
-        group = nil
+        tunnelConnection?.cancel()
+        tunnelConnection = nil
     }
 
     deinit {
@@ -100,7 +117,6 @@ final class QUICClient {
 
         guard SecTrustGetCertificateCount(secTrust) > 0 else { return false }
 
-        // Get the leaf certificate
         if #available(iOS 15.0, *) {
             guard let certs = SecTrustCopyCertificateChain(secTrust) as? [SecCertificate],
                   let leaf = certs.first else { return false }
@@ -130,7 +146,6 @@ extension NWConnection {
 
     /// Receive a length-prefixed JSON message from this stream.
     func receiveControlMessage(completion: @escaping (Result<Data, Error>) -> Void) {
-        // First read the 4-byte length prefix
         receive(minimumIncompleteLength: 4, maximumLength: 4) { content, context, isComplete, error in
             if let error = error {
                 completion(.failure(error))
@@ -146,7 +161,6 @@ extension NWConnection {
                 return
             }
 
-            // Read the JSON body
             self.receive(minimumIncompleteLength: len, maximumLength: len) { content, context, isComplete, error in
                 if let error = error {
                     completion(.failure(error))
@@ -162,7 +176,6 @@ extension NWConnection {
     }
 
     /// Get the TLS security metadata for exporter keying material.
-    /// Available from receive context after the connection is established.
     func exportKeyingMaterial(
         context receiveContext: NWConnection.ContentContext?,
         label: String,
@@ -179,7 +192,6 @@ extension NWConnection {
         let result: Data? = label.withCString { labelPtr in
             let labelLen = label.utf8.count
             if contextData.isEmpty {
-                // Use the version without context for empty context
                 guard let exported = sec_protocol_metadata_create_secret(
                     secMeta,
                     labelLen,

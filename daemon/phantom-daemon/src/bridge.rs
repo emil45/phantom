@@ -12,123 +12,129 @@ use crate::session::{PtySession, ScrollbackBuffer, SessionManager};
 /// Default client receive window (256KB).
 const DEFAULT_WINDOW: u64 = 262144;
 
-/// Handle a session data stream from an authenticated client.
-/// The client sends a control-style JSON request to create/attach/detach a session,
-/// then we bridge frames.
+/// Handle session requests on a control stream from an authenticated client.
+/// Loops to handle multiple control requests (list, destroy) on the same stream.
+/// Exits when create/attach transitions to bridge mode, or the stream ends.
 pub async fn handle_session_stream(
     mut send: SendStream,
     mut recv: RecvStream,
     session_manager: &SessionManager,
     _device_id: &str,
 ) -> Result<()> {
-    // Read the session request (length-prefixed JSON like control messages)
-    let mut len_buf = [0u8; 4];
-    recv.read_exact(&mut len_buf)
-        .await
-        .context("read session request length")?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-
-    let mut msg_buf = vec![0u8; len];
-    recv.read_exact(&mut msg_buf)
-        .await
-        .context("read session request body")?;
-
-    let req: serde_json::Value =
-        serde_json::from_slice(&msg_buf).context("parse session request")?;
-
-    let msg_type = req["type"].as_str().unwrap_or("");
-
-    match msg_type {
-        "create_session" => {
-            let rows = req["rows"].as_u64().unwrap_or(24) as u16;
-            let cols = req["cols"].as_u64().unwrap_or(80) as u16;
-            let request_id = req["request_id"].as_str().unwrap_or("");
-
-            let session_id = session_manager
-                .create_session(rows, cols)
-                .context("create session")?;
-
-            // Send response
-            let resp = serde_json::json!({
-                "type": "session_created",
-                "request_id": request_id,
-                "session_id": session_id,
-            });
-            write_json(&mut send, &resp).await?;
-
-            // Attach and run bridge
-            run_bridge(send, recv, session_manager, &session_id).await
-        }
-        "attach_session" => {
-            let session_id = req["session_id"]
-                .as_str()
-                .context("missing session_id")?;
-            let request_id = req["request_id"].as_str().unwrap_or("");
-
-            // Send scrollback then start bridge
-            let session = session_manager
-                .get_session(session_id)
-                .context("session not found")?;
-
-            let resp = serde_json::json!({
-                "type": "session_attached",
-                "request_id": request_id,
-                "session_id": session_id,
-            });
-            write_json(&mut send, &resp).await?;
-
-            // Send scrollback before live data
-            let scrollback_data = {
-                let s = session.lock().expect("session lock");
-                let sb = s.scrollback.clone();
-                drop(s);
-                let data = sb.lock().expect("scrollback lock").read_from_clean_point();
-                data
-            };
-            if !scrollback_data.is_empty() {
-                let frame = Frame::scrollback(0, scrollback_data);
-                let encoded = frame::encode(&frame, true)
-                    .context("encode scrollback frame")?;
-                send.write_all(&encoded).await.context("send scrollback")?;
+    loop {
+        // Read the session request (length-prefixed JSON like control messages)
+        let mut len_buf = [0u8; 4];
+        match recv.read_exact(&mut len_buf).await {
+            Ok(()) => {}
+            Err(e) => {
+                // Stream closed or reset — normal disconnect
+                info!("session stream read ended: {e}");
+                return Ok(());
             }
+        }
+        let len = u32::from_be_bytes(len_buf) as usize;
 
-            run_bridge(send, recv, session_manager, session_id).await
-        }
-        "list_sessions" => {
-            let request_id = req["request_id"].as_str().unwrap_or("");
-            let sessions = session_manager.list_sessions();
-            let resp = serde_json::json!({
-                "type": "session_list",
-                "request_id": request_id,
-                "sessions": sessions,
-            });
-            write_json(&mut send, &resp).await?;
-            Ok(())
-        }
-        "destroy_session" => {
-            let session_id = req["session_id"]
-                .as_str()
-                .context("missing session_id")?;
-            let request_id = req["request_id"].as_str().unwrap_or("");
+        let mut msg_buf = vec![0u8; len];
+        recv.read_exact(&mut msg_buf)
+            .await
+            .context("read session request body")?;
 
-            let result = session_manager.destroy_session(session_id);
-            let resp = serde_json::json!({
-                "type": "session_destroyed",
-                "request_id": request_id,
-                "success": result.is_ok(),
-                "error": result.err().map(|e| e.to_string()),
-            });
-            write_json(&mut send, &resp).await?;
-            Ok(())
-        }
-        other => {
-            warn!("unknown session request type: {other}");
-            let resp = serde_json::json!({
-                "type": "error",
-                "error": format!("unknown request type: {other}"),
-            });
-            write_json(&mut send, &resp).await?;
-            Ok(())
+        let req: serde_json::Value =
+            serde_json::from_slice(&msg_buf).context("parse session request")?;
+
+        let msg_type = req["type"].as_str().unwrap_or("");
+
+        match msg_type {
+            "create_session" => {
+                let rows = req["rows"].as_u64().unwrap_or(24) as u16;
+                let cols = req["cols"].as_u64().unwrap_or(80) as u16;
+                let request_id = req["request_id"].as_str().unwrap_or("");
+
+                let session_id = session_manager
+                    .create_session(rows, cols)
+                    .context("create session")?;
+
+                let resp = serde_json::json!({
+                    "type": "session_created",
+                    "request_id": request_id,
+                    "session_id": session_id,
+                });
+                write_json(&mut send, &resp).await?;
+
+                // Transition to bridge mode (consumes the stream)
+                return run_bridge(send, recv, session_manager, &session_id).await;
+            }
+            "attach_session" => {
+                let session_id = req["session_id"]
+                    .as_str()
+                    .context("missing session_id")?;
+                let request_id = req["request_id"].as_str().unwrap_or("");
+
+                let session = session_manager
+                    .get_session(session_id)
+                    .context("session not found")?;
+
+                let resp = serde_json::json!({
+                    "type": "session_attached",
+                    "request_id": request_id,
+                    "session_id": session_id,
+                });
+                write_json(&mut send, &resp).await?;
+
+                // Send scrollback before live data
+                let scrollback_data = {
+                    let s = session.lock().expect("session lock");
+                    let sb = s.scrollback.clone();
+                    drop(s);
+                    let data = sb.lock().expect("scrollback lock").read_from_clean_point();
+                    data
+                };
+                if !scrollback_data.is_empty() {
+                    let frame = Frame::scrollback(0, scrollback_data);
+                    let encoded = frame::encode(&frame, true)
+                        .context("encode scrollback frame")?;
+                    send.write_all(&encoded).await.context("send scrollback")?;
+                }
+
+                // Transition to bridge mode (consumes the stream)
+                return run_bridge(send, recv, session_manager, session_id).await;
+            }
+            "list_sessions" => {
+                let request_id = req["request_id"].as_str().unwrap_or("");
+                let sessions = session_manager.list_sessions();
+                let resp = serde_json::json!({
+                    "type": "session_list",
+                    "request_id": request_id,
+                    "sessions": sessions,
+                });
+                write_json(&mut send, &resp).await?;
+                // Continue looping for more requests
+            }
+            "destroy_session" => {
+                let session_id = req["session_id"]
+                    .as_str()
+                    .context("missing session_id")?;
+                let request_id = req["request_id"].as_str().unwrap_or("");
+
+                let result = session_manager.destroy_session(session_id);
+                let resp = serde_json::json!({
+                    "type": "session_destroyed",
+                    "request_id": request_id,
+                    "success": result.is_ok(),
+                    "error": result.err().map(|e| e.to_string()),
+                });
+                write_json(&mut send, &resp).await?;
+                // Continue looping for more requests
+            }
+            other => {
+                warn!("unknown session request type: {other}");
+                let resp = serde_json::json!({
+                    "type": "error",
+                    "error": format!("unknown request type: {other}"),
+                });
+                write_json(&mut send, &resp).await?;
+                // Continue looping
+            }
         }
     }
 }

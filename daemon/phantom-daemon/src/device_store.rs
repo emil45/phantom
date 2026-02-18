@@ -26,8 +26,7 @@ pub struct DeviceStore {
     data: Mutex<DeviceStoreData>,
     store_path: PathBuf,
     audit_path: PathBuf,
-    /// Active pairing tokens: token → expiry
-    pairing_tokens: Mutex<HashMap<String, std::time::Instant>>,
+    token_path: PathBuf,
 }
 
 impl DeviceStore {
@@ -45,11 +44,13 @@ impl DeviceStore {
 
         info!("loaded {} paired device(s)", data.devices.len());
 
+        let token_path = phantom_dir.join("pairing_tokens.json");
+
         Ok(Self {
             data: Mutex::new(data),
             store_path,
             audit_path,
-            pairing_tokens: Mutex::new(HashMap::new()),
+            token_path,
         })
     }
 
@@ -62,31 +63,54 @@ impl DeviceStore {
     }
 
     /// Generate a single-use pairing token valid for 5 minutes.
+    /// Tokens are stored on disk so `phantom pair` and `phantom daemon` share them.
     pub fn create_pairing_token(&self) -> String {
         use base64::Engine;
         let token_bytes: [u8; 32] = rand::Rng::gen(&mut rand::thread_rng());
         let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token_bytes);
-        let expiry = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        let expiry_epoch = (std::time::SystemTime::now()
+            + std::time::Duration::from_secs(300))
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-        self.pairing_tokens
-            .lock()
-            .expect("pairing tokens lock")
-            .insert(token.clone(), expiry);
+        let mut tokens = self.load_tokens();
+        tokens.insert(token.clone(), expiry_epoch);
+        self.save_tokens(&tokens);
 
         token
     }
 
     /// Validate and consume a pairing token (single-use).
     pub fn validate_pairing_token(&self, token: &str) -> Result<bool> {
-        let mut tokens = self.pairing_tokens.lock().expect("pairing tokens lock");
+        let mut tokens = self.load_tokens();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Prune expired tokens
+        tokens.retain(|_, &mut exp| exp > now);
+
         if let Some(expiry) = tokens.remove(token) {
-            if std::time::Instant::now() < expiry {
-                Ok(true)
-            } else {
-                Ok(false)
-            }
+            self.save_tokens(&tokens);
+            Ok(expiry > now)
         } else {
+            self.save_tokens(&tokens);
             Ok(false)
+        }
+    }
+
+    fn load_tokens(&self) -> HashMap<String, u64> {
+        fs::read_to_string(&self.token_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn save_tokens(&self, tokens: &HashMap<String, u64>) {
+        if let Ok(json) = serde_json::to_string(tokens) {
+            let _ = fs::write(&self.token_path, json);
         }
     }
 

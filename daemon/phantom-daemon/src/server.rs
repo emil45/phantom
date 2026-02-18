@@ -26,7 +26,7 @@ impl RateLimiter {
         }
     }
 
-    /// Returns true if the event should be allowed.
+    /// Returns true if the event should be allowed, and records it.
     fn check(&self, ip: IpAddr) -> bool {
         let mut map = self.connections.lock().expect("rate limiter lock");
         let now = Instant::now();
@@ -41,6 +41,15 @@ impl RateLimiter {
             timestamps.push(now);
             true
         }
+    }
+
+    /// Returns true if under the limit, without recording a new event.
+    fn is_allowed(&self, ip: IpAddr) -> bool {
+        let mut map = self.connections.lock().expect("rate limiter lock");
+        let now = Instant::now();
+        let timestamps = map.entry(ip).or_default();
+        timestamps.retain(|t| now.duration_since(*t) < self.window);
+        timestamps.len() < self.max_per_window
     }
 
     /// Record an event without checking limits (for tracking failures).
@@ -75,8 +84,8 @@ pub async fn run(
             continue;
         }
 
-        // Check if this IP has too many auth failures
-        if !auth_fail_limiter.check(ip) {
+        // Check if this IP has too many auth failures (read-only check)
+        if !auth_fail_limiter.is_allowed(ip) {
             warn!("auth-failure rate limited connection from {remote}");
             incoming.refuse();
             continue;
@@ -121,12 +130,12 @@ async fn handle_connection(
     .context("auth timeout")?
     .context("accept control stream")?;
 
-    // Authenticate the connection
-    let device_id = match authenticator
+    // Authenticate the connection (returns streams back for reuse)
+    let (device_id, control_send, control_recv) = match authenticator
         .handle_auth(&connection, control_send, control_recv)
         .await
     {
-        Ok(id) => id,
+        Ok(tuple) => tuple,
         Err(e) => {
             // Record auth failure for rate limiting
             auth_fail_limiter.record(remote.ip());
@@ -139,7 +148,17 @@ async fn handle_connection(
     // Track this connection for the device
     session_manager.register_connection(&device_id, &connection);
 
-    // Handle subsequent streams (session data streams)
+    // Continue handling session requests on the same control stream.
+    // The first bidi stream serves as both auth and session management.
+    if let Err(e) = crate::bridge::handle_session_stream(
+        control_send, control_recv, &session_manager, &device_id,
+    )
+    .await
+    {
+        info!("session stream ended for {device_id}: {e:#}");
+    }
+
+    // Also accept additional bidi streams (for future multi-stream support)
     loop {
         match connection.accept_bi().await {
             Ok((send, recv)) => {

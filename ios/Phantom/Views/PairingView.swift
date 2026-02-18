@@ -24,7 +24,7 @@ struct PairingView: View {
             // QR Scanner
             CodeScannerView(
                 codeTypes: [.qr],
-                simulatedData: "{\"host\":\"127.0.0.1\",\"port\":4433,\"fp\":\"test\",\"tok\":\"test-token\",\"name\":\"Test Mac\",\"v\":1}",
+                simulatedData: "{\"host\":\"127.0.0.1\",\"port\":4433,\"fp\":\"lJEsdZhFfnLYkFwqJJX+9BzNiQ8T2ZRVROKTVJOIlEA=\",\"tok\":\"p30AAk7atHE3utYLn6RZFD1x4o4Oui5iTg0eHxzToSg\",\"name\":\"Test Mac\",\"v\":1}",
                 completion: handleScan
             )
             .frame(height: 280)

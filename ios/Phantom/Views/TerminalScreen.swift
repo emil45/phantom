@@ -8,6 +8,7 @@ struct TerminalScreen: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             TerminalContainerView(terminalView: dataSource.terminalView)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.keyboard)
 
             // Connection status indicator

@@ -6,7 +6,7 @@ import UIKit
 /// Terminal output (Data/Scrollback frames) → feed to SwiftTerm.
 /// User input from SwiftTerm → send as Data frames via ReconnectManager.
 @MainActor
-final class TerminalDataSource: NSObject, TerminalViewDelegate {
+final class TerminalDataSource: NSObject, ObservableObject, TerminalViewDelegate {
     let terminalView: TerminalView
     weak var reconnectManager: ReconnectManager?
 
