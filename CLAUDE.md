@@ -23,6 +23,15 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 - macOS: `cd macos && xcodebuild -project PhantomBar.xcodeproj -scheme PhantomBar build` (macOS 13+)
 - Always `cd daemon/` before cargo commands — Xcode builds can change cwd
 
+## Versioning
+
+All version strings must stay in sync when bumping:
+- `scripts/build-release.sh` — `VERSION` variable (source of truth, currently 0.3.0)
+- `macos/PhantomBar/Info.plist` — `CFBundleShortVersionString`
+- `macos/PhantomBar.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
+- `daemon/phantom-daemon/Cargo.toml` — `version` field
+- iOS version is set in `ios/Phantom.xcodeproj/project.pbxproj` — `MARKETING_VERSION`
+
 ## Key Design Decisions
 
 - Single QUIC stream (not multiplexed) — NWConnectionGroup had reliability issues
