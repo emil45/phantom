@@ -17,9 +17,11 @@ struct PhantomApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(reconnectManager: reconnectManager, dataSource: dataSource)
+                .environment(\.phantomColors, PhantomColors(from: TerminalTheme.saved))
                 .onChange(of: scenePhase) { newPhase in
                     reconnectManager.handleScenePhase(newPhase)
                 }
+                .preferredColorScheme(.dark)
         }
     }
 }

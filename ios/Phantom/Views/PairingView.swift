@@ -2,7 +2,7 @@ import SwiftUI
 import CodeScanner
 
 /// QR code scanner + manual pairing entry.
-/// Shown when the device is not yet paired with a daemon.
+/// Styled with Phantom design tokens for a dark, tool-like onboarding feel.
 struct PairingView: View {
     @ObservedObject var reconnectManager: ReconnectManager
     @State private var showManualEntry = false
@@ -12,42 +12,75 @@ struct PairingView: View {
     @State private var manualFingerprint = ""
     @State private var errorMessage: String?
 
+    private let colors = PhantomColors.defaultDark
+
     var body: some View {
-        VStack(spacing: 24) {
-            Text("Phantom")
-                .font(.largeTitle.bold())
+        ZStack {
+            colors.base.ignoresSafeArea()
 
-            Text("Scan the QR code shown by\n**phantom pair** on your Mac")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+            VStack(spacing: PhantomSpacing.lg) {
+                Spacer()
 
-            // QR Scanner
-            CodeScannerView(
-                codeTypes: [.qr],
-                simulatedData: "{\"host\":\"127.0.0.1\",\"port\":4433,\"fp\":\"lJEsdZhFfnLYkFwqJJX+9BzNiQ8T2ZRVROKTVJOIlEA=\",\"tok\":\"p30AAk7atHE3utYLn6RZFD1x4o4Oui5iTg0eHxzToSg\",\"name\":\"Test Mac\",\"v\":1}",
-                completion: handleScan
-            )
-            .frame(height: 280)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal)
+                // Logo area
+                VStack(spacing: PhantomSpacing.sm) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 40, weight: .light))
+                        .foregroundStyle(colors.accent)
 
-            if let error = errorMessage {
-                Text(error)
-                    .foregroundStyle(.red)
-                    .font(.caption)
-                    .padding(.horizontal)
+                    Text("Phantom")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(colors.textPrimary)
+
+                    Text("Scan the QR code shown by\n**phantom pair** on your Mac")
+                        .font(PhantomFont.secondaryLabel)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(colors.textSecondary)
+                }
+
+                // QR Scanner
+                CodeScannerView(
+                    codeTypes: [.qr],
+                    simulatedData: "{\"host\":\"127.0.0.1\",\"port\":4433,\"fp\":\"lJEsdZhFfnLYkFwqJJX+9BzNiQ8T2ZRVROKTVJOIlEA=\",\"tok\":\"p30AAk7atHE3utYLn6RZFD1x4o4Oui5iTg0eHxzToSg\",\"name\":\"Test Mac\",\"v\":1}",
+                    completion: handleScan
+                )
+                .frame(height: 240)
+                .clipShape(RoundedRectangle(cornerRadius: PhantomRadius.card))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PhantomRadius.card)
+                        .stroke(colors.elevated, lineWidth: 1)
+                )
+                .padding(.horizontal, PhantomSpacing.lg)
+
+                if let error = errorMessage {
+                    Text(error)
+                        .font(PhantomFont.caption)
+                        .foregroundStyle(Color(hex: 0xBF616A))
+                        .padding(.horizontal, PhantomSpacing.md)
+                }
+
+                if reconnectManager.state == .connecting || reconnectManager.state == .authenticating {
+                    HStack(spacing: PhantomSpacing.xs) {
+                        ProgressView()
+                            .tint(colors.accent)
+                        Text("Connecting...")
+                            .font(PhantomFont.secondaryLabel)
+                            .foregroundStyle(colors.textSecondary)
+                    }
+                }
+
+                Spacer()
+
+                // Manual entry button
+                Button {
+                    showManualEntry = true
+                } label: {
+                    Text("Enter manually instead")
+                        .font(PhantomFont.secondaryLabel)
+                        .foregroundStyle(colors.textSecondary)
+                }
+                .padding(.bottom, PhantomSpacing.lg)
             }
-
-            if reconnectManager.state == .connecting || reconnectManager.state == .authenticating {
-                ProgressView("Connecting to server...")
-            }
-
-            Button("Enter manually instead") {
-                showManualEntry = true
-            }
-            .font(.subheadline)
         }
-        .padding()
         .sheet(isPresented: $showManualEntry) {
             manualEntrySheet
         }
@@ -55,35 +88,41 @@ struct PairingView: View {
 
     private var manualEntrySheet: some View {
         NavigationStack {
-            Form {
-                Section("Server") {
-                    TextField("Host (IP or hostname)", text: $manualHost)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    TextField("Port", text: $manualPort)
-                        .keyboardType(.numberPad)
-                    if let portError = portValidationError {
-                        Text(portError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
+            ZStack {
+                colors.base.ignoresSafeArea()
+
+                Form {
+                    Section("Server") {
+                        TextField("Host (IP or hostname)", text: $manualHost)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        TextField("Port", text: $manualPort)
+                            .keyboardType(.numberPad)
+                        if let portError = portValidationError {
+                            Text(portError)
+                                .font(PhantomFont.caption)
+                                .foregroundStyle(Color(hex: 0xBF616A))
+                        }
+                    }
+                    Section("Pairing") {
+                        TextField("Token", text: $manualToken)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                        TextField("Fingerprint (optional)", text: $manualFingerprint)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                    Section {
+                        Text("Run **phantom pair** on your Mac to get these values.")
+                            .font(PhantomFont.caption)
+                            .foregroundStyle(colors.textSecondary)
                     }
                 }
-                Section("Pairing") {
-                    TextField("Token", text: $manualToken)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                    TextField("Fingerprint (optional)", text: $manualFingerprint)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                }
-                Section {
-                    Text("Run **phantom pair** on your Mac to get these values.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                .scrollContentBackground(.hidden)
             }
             .navigationTitle("Manual Pairing")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { showManualEntry = false }
@@ -116,7 +155,7 @@ struct PairingView: View {
     private var portValidationError: String? {
         guard !manualPort.isEmpty else { return nil }
         guard let port = UInt16(manualPort), port > 0 else {
-            return "Port must be 1–65535"
+            return "Port must be 1\u{2013}65535"
         }
         return nil
     }
@@ -125,7 +164,7 @@ struct PairingView: View {
         switch result {
         case .success(let scan):
             guard let payload = PairingPayload.decode(from: scan.string) else {
-                errorMessage = "Invalid QR code — make sure you're scanning the code from phantom pair"
+                errorMessage = "Invalid QR code \u{2014} make sure you\u{2019}re scanning the code from phantom pair"
                 return
             }
             errorMessage = nil
@@ -137,7 +176,7 @@ struct PairingView: View {
                 serverName: payload.serverName
             )
         case .failure:
-            errorMessage = "Camera scan failed — try entering details manually"
+            errorMessage = "Camera scan failed \u{2014} try entering details manually"
         }
     }
 }
