@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use phantom_daemon::config::{Cli, Command, DaemonConfig, DeviceAction};
-use phantom_daemon::{auth, device_store, server, session, tls};
+use phantom_daemon::{auth, device_store, ipc, server, session, tls};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -93,6 +93,21 @@ async fn run_daemon(bind: std::net::SocketAddr, phantom_dir: &std::path::Path, c
         sm_for_reaper.run_reaper(cancel_for_reaper, reaper_interval).await;
     });
 
+    // Start the IPC server
+    let ipc_server = Arc::new(ipc::IpcServer::new(
+        phantom_dir,
+        session_manager.clone(),
+        device_store.clone(),
+        fp.clone(),
+        bind.to_string(),
+    ));
+    let ipc_cancel = cancel.clone();
+    tokio::spawn(async move {
+        if let Err(e) = ipc_server.run(ipc_cancel).await {
+            error!("IPC server error: {e:#}");
+        }
+    });
+
     server::prevent_sleep();
 
     info!("Phantom daemon listening on {}", endpoint.local_addr()?);
@@ -122,39 +137,25 @@ fn run_pair(token_only: bool) -> Result<()> {
     let device_store = device_store::DeviceStore::new(&phantom_dir)
         .context("initialize device store")?;
 
-    let token = device_store.create_pairing_token();
-
     let (cert_der, _) = tls::load_or_generate()
         .context("load TLS certificate")?;
     let fp = tls::fingerprint_base64(&cert_der);
 
-    // Get local IP for QR code
-    let host = local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-
-    let qr_payload = serde_json::json!({
-        "host": host,
-        "port": 4433,
-        "fp": fp,
-        "tok": token,
-        "name": hostname(),
-        "v": 1,
-    });
-
-    let qr_json = serde_json::to_string(&qr_payload)?;
+    let pairing = device_store.generate_pairing_data(&fp, 4433);
 
     if token_only {
-        println!("Pairing token: {token}");
-        println!("Host: {host}:4433");
-        println!("Fingerprint: {fp}");
+        println!("Pairing token: {}", pairing.token);
+        println!("Host: {}:{}", pairing.host, pairing.port);
+        println!("Fingerprint: {}", pairing.fingerprint);
         println!("\nEnter these in the Phantom iOS app to pair.");
     } else {
         println!("Scan this QR code with the Phantom iOS app:\n");
-        qr2term::print_qr(&qr_json)
+        qr2term::print_qr(&pairing.qr_payload_json)
             .context("print QR code")?;
         println!("\nOr use manual pairing:");
-        println!("  Token: {token}");
-        println!("  Host: {host}:4433");
-        println!("  Fingerprint: {fp}");
+        println!("  Token: {}", pairing.token);
+        println!("  Host: {}:{}", pairing.host, pairing.port);
+        println!("  Fingerprint: {}", pairing.fingerprint);
     }
 
     println!("\nToken expires in 5 minutes.");
@@ -193,15 +194,3 @@ fn run_device_command(action: DeviceAction) -> Result<()> {
     Ok(())
 }
 
-fn local_ip() -> Option<String> {
-    use std::net::UdpSocket;
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
-    Some(socket.local_addr().ok()?.ip().to_string())
-}
-
-fn hostname() -> String {
-    std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("HOST"))
-        .unwrap_or_else(|_| "phantom-host".to_string())
-}
