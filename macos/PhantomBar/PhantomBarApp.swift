@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import ServiceManagement
 
 @main
 struct PhantomBarApp: App {
@@ -55,6 +54,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let daemonState: DaemonState
     private let setupManager: SetupManager
     private var pairingPanel: NSPanel?
+    private var settingsWindow: NSWindow?
 
     init(daemonState: DaemonState, setupManager: SetupManager) {
         self.daemonState = daemonState
@@ -331,28 +331,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func addFooterItems() {
-        let loginItem = NSMenuItem(
-            title: "Start at Login",
-            action: #selector(toggleLoginItem),
-            keyEquivalent: ""
-        )
-        loginItem.target = self
-        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(loginItem)
-
-        let logsItem = NSMenuItem(
-            title: "Open Logs\u{2026}",
-            action: #selector(openLogs),
-            keyEquivalent: ""
-        )
-        logsItem.target = self
-        menu.addItem(logsItem)
-
         if let error = setupManager.setupError {
             let errorItem = NSMenuItem(title: error, action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
+            menu.addItem(.separator())
         }
+
+        let settingsItem = NSMenuItem(
+            title: "Settings\u{2026}",
+            action: #selector(openSettings),
+            keyEquivalent: ","
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
@@ -417,25 +409,29 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         daemonState.destroySession(sessionId)
     }
 
-    @objc private func toggleLoginItem() {
-        let service = SMAppService.mainApp
-        do {
-            if service.status == .enabled {
-                try service.unregister()
-            } else {
-                try service.register()
-            }
-        } catch {
-            // Menu reflects actual state on next open
+    @objc private func openSettings() {
+        if let existing = settingsWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
         }
-    }
 
-    @objc private func openLogs() {
-        let logURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".phantom/logs/daemon.log")
-        if FileManager.default.fileExists(atPath: logURL.path) {
-            NSWorkspace.shared.open(logURL)
-        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: true
+        )
+        window.title = "Phantom Settings"
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        let content = SettingsView().environmentObject(daemonState)
+        window.contentView = NSHostingView(rootView: content)
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow = window
     }
 
     @objc private func quitApp() {

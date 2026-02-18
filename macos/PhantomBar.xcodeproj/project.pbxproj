@@ -19,6 +19,7 @@
 		A10010 /* SetupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
 		A10011 /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10013; };
 		A10012 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
+		A10013 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		B10012 /* SetupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupManager.swift; sourceTree = "<group>"; };
 		B10013 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		B10014 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		B10015 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		C10001 /* PhantomBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhantomBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -100,6 +102,7 @@
 				B10007 /* DeviceRow.swift */,
 				B10008 /* SessionRow.swift */,
 				B10009 /* PairingView.swift */,
+				B10015 /* SettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -199,6 +202,7 @@
 				A10008 /* SessionRow.swift in Sources */,
 				A10009 /* PairingView.swift in Sources */,
 				A10010 /* SetupManager.swift in Sources */,
+				A10013 /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
