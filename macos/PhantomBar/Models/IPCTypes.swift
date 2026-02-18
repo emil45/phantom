@@ -52,7 +52,7 @@ struct ConnectedDevice: Decodable {
 
 // MARK: - Sessions
 
-struct SessionInfo: Decodable, Identifiable {
+struct SessionInfo: Decodable, Identifiable, Equatable {
     let id: String
     let alive: Bool
     let createdAt: String
@@ -70,7 +70,7 @@ struct SessionInfo: Decodable, Identifiable {
 
 // MARK: - Devices
 
-struct DeviceInfo: Decodable, Identifiable {
+struct DeviceInfo: Decodable, Identifiable, Equatable {
     let deviceId: String
     let deviceName: String
     let pairedAt: String

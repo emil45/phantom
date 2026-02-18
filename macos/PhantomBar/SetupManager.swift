@@ -30,36 +30,34 @@ class SetupManager: ObservableObject {
     func ensureSetup() {
         setupError = nil
 
-        do {
-            try installLaunchAgent()
-            registerLoginItem()
-            try startDaemon()
-            logger.info("Setup complete")
-        } catch {
-            setupError = error.localizedDescription
-            logger.error("Setup failed: \(error.localizedDescription)")
+        Task {
+            do {
+                try await installLaunchAgent()
+                registerLoginItem()
+                try await loadAgent()
+                logger.info("Setup complete")
+            } catch {
+                setupError = error.localizedDescription
+                logger.error("Setup failed: \(error.localizedDescription)")
+            }
         }
     }
 
     // MARK: - LaunchAgent
 
-    private func installLaunchAgent() throws {
+    private func installLaunchAgent() async throws {
         guard let daemonPath = embeddedDaemonURL?.path,
               FileManager.default.isExecutableFile(atPath: daemonPath) else {
-            // No embedded daemon (dev build) — skip LaunchAgent install
             logger.info("No embedded daemon binary, skipping LaunchAgent install")
             return
         }
 
-        // Ensure ~/Library/LaunchAgents exists
         let launchAgentsDir = launchAgentURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
-
-        // Ensure log directory exists
         try FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
 
         // Unload existing agent (ignore errors — may not be loaded)
-        unloadLaunchAgent()
+        await unloadAgent()
 
         let logPath = logDir.appendingPathComponent("daemon.log").path
 
@@ -88,7 +86,6 @@ class SetupManager: ObservableObject {
                 try service.register()
                 logger.info("Registered login item")
             } catch {
-                // Non-fatal — user can still launch manually
                 logger.warning("Failed to register login item: \(error.localizedDescription)")
             }
         }
@@ -96,41 +93,41 @@ class SetupManager: ObservableObject {
 
     // MARK: - Daemon Lifecycle
 
-    func startDaemon() throws {
+    private func loadAgent() async throws {
         let plistPath = launchAgentURL.path
         guard FileManager.default.fileExists(atPath: plistPath) else {
-            // No plist — fall back to DaemonMonitor's direct launch
             logger.info("No LaunchAgent plist, skipping launchctl load")
             return
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["load", plistPath]
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            logger.warning("launchctl load exited with status \(process.terminationStatus)")
-        }
+        try await runProcess("/bin/launchctl", arguments: ["load", plistPath])
     }
 
-    func stopDaemon() throws {
-        unloadLaunchAgent()
-    }
-
-    private func unloadLaunchAgent() {
+    private func unloadAgent() async {
         let plistPath = launchAgentURL.path
         guard FileManager.default.fileExists(atPath: plistPath) else { return }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["unload", plistPath]
         do {
-            try process.run()
-            process.waitUntilExit()
+            try await runProcess("/bin/launchctl", arguments: ["unload", plistPath])
         } catch {
             logger.warning("launchctl unload failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Run a process asynchronously without blocking the main thread.
+    private func runProcess(_ path: String, arguments: [String]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: path)
+            process.arguments = arguments
+            process.terminationHandler = { _ in
+                continuation.resume()
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
         }
     }
 }

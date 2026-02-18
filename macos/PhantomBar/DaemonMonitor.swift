@@ -8,7 +8,6 @@ struct DaemonMonitor {
     init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         socketPath = "\(home)/.phantom/daemon.sock"
-        // Try to find the phantom binary
         phantomBinary = DaemonMonitor.findPhantomBinary()
     }
 
@@ -16,21 +15,16 @@ struct DaemonMonitor {
         FileManager.default.fileExists(atPath: socketPath)
     }
 
-    func startDaemon() throws {
-        // Try launchctl first (if a plist exists)
+    func startDaemon() async throws {
         let plistPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/com.phantom.daemon.plist").path
 
         if FileManager.default.fileExists(atPath: plistPath) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["load", plistPath]
-            try process.run()
-            process.waitUntilExit()
+            try await runProcess("/bin/launchctl", arguments: ["load", plistPath])
             return
         }
 
-        // Fall back to running the binary directly
+        // Fall back to running the binary directly (fire-and-forget — daemon runs in background)
         guard let binary = phantomBinary else {
             throw DaemonError.binaryNotFound
         }
@@ -43,29 +37,37 @@ struct DaemonMonitor {
         try process.run()
     }
 
-    func stopDaemon() throws {
+    func stopDaemon() async throws {
         let plistPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/com.phantom.daemon.plist").path
 
         if FileManager.default.fileExists(atPath: plistPath) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            process.arguments = ["unload", plistPath]
-            try process.run()
-            process.waitUntilExit()
+            try await runProcess("/bin/launchctl", arguments: ["unload", plistPath])
             return
         }
 
         // Fall back to pkill
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        process.arguments = ["-f", "phantom daemon"]
-        try process.run()
-        process.waitUntilExit()
+        try await runProcess("/usr/bin/pkill", arguments: ["-f", "phantom daemon"])
+    }
+
+    /// Run a process asynchronously without blocking the calling thread.
+    private func runProcess(_ path: String, arguments: [String]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: path)
+            process.arguments = arguments
+            process.terminationHandler = { _ in
+                continuation.resume()
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
     }
 
     private static func findPhantomBinary() -> String? {
-        // Check app bundle first (embedded daemon in .app/Contents/MacOS/)
         let bundlePath = Bundle.main.bundleURL
             .appendingPathComponent("Contents/MacOS/phantom-daemon").path
 

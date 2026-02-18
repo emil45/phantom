@@ -6,6 +6,7 @@ struct PairingView: View {
     @Environment(\.dismiss) var dismiss
 
     @State private var pairingInfo: PairingInfo?
+    @State private var qrImage: NSImage?
     @State private var error: String?
     @State private var timeRemaining: Int = 300
     @State private var showManualEntry = false
@@ -16,16 +17,19 @@ struct PairingView: View {
             Text("Pair New Device")
                 .font(.headline)
 
-            if let error = error {
+            if let error {
                 Text(error)
                     .foregroundColor(.red)
                     .font(.caption)
             } else if let info = pairingInfo {
-                // QR Code
-                if let qrImage = generateQRCode(from: info.qrPayloadJson) {
+                // QR Code (generated off main thread)
+                if let qrImage {
                     Image(nsImage: qrImage)
                         .interpolation(.none)
                         .resizable()
+                        .frame(width: 200, height: 200)
+                } else {
+                    ProgressView()
                         .frame(width: 200, height: 200)
                 }
 
@@ -69,6 +73,14 @@ struct PairingView: View {
         .task {
             await loadPairing()
         }
+        .task(id: pairingInfo?.token) {
+            guard let info = pairingInfo else { return }
+            let payload = info.qrPayloadJson
+            let image = await Task.detached(priority: .userInitiated) {
+                Self.makeQRCode(from: payload)
+            }.value
+            qrImage = image
+        }
         .onDisappear {
             timer?.invalidate()
         }
@@ -98,12 +110,13 @@ struct PairingView: View {
             } else {
                 timer?.invalidate()
                 pairingInfo = nil
+                qrImage = nil
                 error = "Pairing code expired. Close and try again."
             }
         }
     }
 
-    private func generateQRCode(from string: String) -> NSImage? {
+    private static func makeQRCode(from string: String) -> NSImage? {
         let context = CIContext()
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
@@ -111,7 +124,6 @@ struct PairingView: View {
 
         guard let output = filter.outputImage else { return nil }
 
-        // Scale up for crispness
         let scale = 10.0
         let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
 

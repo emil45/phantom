@@ -5,32 +5,26 @@ struct StatusPopover: View {
     @EnvironmentObject var setupManager: SetupManager
     @State private var showPairing = false
 
+    private var status: ConnectionStatus { state.snapshot.status }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             headerSection
             Divider()
 
-            if case .stopped = state.status {
-                stoppedSection
-            } else if case .error(let msg) = state.status {
-                errorSection(msg)
-            } else {
-                // Devices
-                devicesSection
-                Divider()
-
-                // Sessions
-                sessionsSection
-                Divider()
-
-                // Pair action
-                MenuRow(icon: "plus.circle", label: "Pair New Device") {
-                    showPairing = true
+            // Content — switches based on daemon state
+            Group {
+                switch status {
+                case .stopped:
+                    stoppedSection
+                case .error(let msg):
+                    errorSection(msg)
+                default:
+                    connectedContent
                 }
-
-                Divider()
             }
+            .animation(.easeInOut(duration: 0.2), value: status)
 
             // Footer
             footerSection
@@ -53,24 +47,7 @@ struct StatusPopover: View {
                 Text("Phantom")
                     .font(.headline)
 
-                switch state.status {
-                case .stopped:
-                    Text("Not running")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                case .connecting:
-                    Text("Connecting...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                case .running(let uptime):
-                    Text("Running \(formatUptime(uptime))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                case .error:
-                    Text("Error")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
+                statusText
             }
 
             Spacer()
@@ -78,16 +55,57 @@ struct StatusPopover: View {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
+                .animation(.easeInOut(duration: 0.3), value: status)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
     }
 
+    @ViewBuilder
+    private var statusText: some View {
+        switch status {
+        case .stopped:
+            Text("Not running")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        case .connecting:
+            Text("Connecting...")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        case .running(let uptime):
+            Text("Running \(formatUptime(uptime))")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        case .error:
+            Text("Error")
+                .font(.caption)
+                .foregroundColor(.red)
+        }
+    }
+
     private var statusColor: Color {
-        switch state.status {
-        case .running: return .green
-        case .connecting: return .yellow
-        case .stopped, .error: return .red
+        switch status {
+        case .running: .green
+        case .connecting: .yellow
+        case .stopped, .error: .red
+        }
+    }
+
+    // MARK: - Connected Content
+
+    private var connectedContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            devicesSection
+            Divider()
+
+            sessionsSection
+            Divider()
+
+            MenuRow(icon: "plus.circle", label: "Pair New Device") {
+                showPairing = true
+            }
+
+            Divider()
         }
     }
 
@@ -101,14 +119,7 @@ struct StatusPopover: View {
                 .multilineTextAlignment(.center)
 
             Button("Start Daemon") {
-                do {
-                    try setupManager.startDaemon()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        state.poll()
-                    }
-                } catch {
-                    state.startDaemon()
-                }
+                Task { await state.startDaemon() }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -126,7 +137,7 @@ struct StatusPopover: View {
                 .multilineTextAlignment(.center)
 
             Button("Retry") {
-                state.poll()
+                state.refresh()
             }
             .controlSize(.small)
         }
@@ -145,21 +156,21 @@ struct StatusPopover: View {
                     .foregroundColor(.secondary)
                     .fontWeight(.medium)
                 Spacer()
-                Text("\(state.devices.count)")
+                Text("\(state.snapshot.devices.count)")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
-            if state.devices.isEmpty {
+            if state.snapshot.devices.isEmpty {
                 Text("No paired devices")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 6)
             } else {
-                ForEach(state.devices) { device in
+                ForEach(state.snapshot.devices) { device in
                     DeviceRow(device: device) {
                         state.revokeDevice(device.deviceId)
                     }
@@ -180,21 +191,21 @@ struct StatusPopover: View {
                     .foregroundColor(.secondary)
                     .fontWeight(.medium)
                 Spacer()
-                Text("\(state.sessions.count)")
+                Text("\(state.snapshot.sessions.count)")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
-            if state.sessions.isEmpty {
+            if state.snapshot.sessions.isEmpty {
                 Text("No active sessions")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 6)
             } else {
-                ForEach(state.sessions) { session in
+                ForEach(state.snapshot.sessions) { session in
                     SessionRow(session: session) {
                         state.destroySession(session.id)
                     }
@@ -218,27 +229,13 @@ struct StatusPopover: View {
             }
 
             HStack(spacing: 0) {
-                if state.status.isRunning {
+                if status.isRunning {
                     MenuRow(label: "Stop Daemon", font: .caption, color: .secondary) {
-                        do {
-                            try setupManager.stopDaemon()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                state.poll()
-                            }
-                        } catch {
-                            state.stopDaemon()
-                        }
+                        Task { await state.stopDaemon() }
                     }
-                } else if case .stopped = state.status {
+                } else if case .stopped = status {
                     MenuRow(label: "Start Daemon", font: .caption, color: .secondary) {
-                        do {
-                            try setupManager.startDaemon()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                state.poll()
-                            }
-                        } catch {
-                            state.startDaemon()
-                        }
+                        Task { await state.startDaemon() }
                     }
                 }
 
@@ -299,7 +296,9 @@ private struct MenuRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            isHovered = hovering
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
         }
     }
 }
