@@ -26,11 +26,12 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 ## Versioning
 
 All version strings must stay in sync when bumping:
-- `scripts/build-release.sh` — `VERSION` variable (source of truth, currently 0.3.0)
+- `scripts/build-release.sh` — `VERSION` variable (source of truth, currently 0.4.0)
 - `macos/PhantomBar/Info.plist` — `CFBundleShortVersionString`
 - `macos/PhantomBar.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
 - `daemon/phantom-daemon/Cargo.toml` — `version` field
-- iOS version is set in `ios/Phantom.xcodeproj/project.pbxproj` — `MARKETING_VERSION`
+- `daemon/phantom-frame/Cargo.toml` — `version` field
+- iOS version is set in `ios/Phantom.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
 
 ## Key Design Decisions
 
@@ -43,4 +44,5 @@ All version strings must stay in sync when bumping:
 - PhantomBar uses NSMenu (not NSPopover) — native keyboard nav, VoiceOver, and appearance handling for free
 - Menu bar icon must use `isTemplate = true` for correct light/dark/auto-hide rendering
 - Pairing flow opens in a floating NSPanel, not a sheet on a popover
+- Settings window (⌘,) with General tab (login toggle, config/log paths) and About tab (version, daemon info, cert fingerprint)
 - DeviceRow.swift and SessionRow.swift are dead code (devices/sessions are standard NSMenuItems now)
