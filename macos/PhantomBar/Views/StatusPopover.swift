@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StatusPopover: View {
     @EnvironmentObject var state: DaemonState
+    @EnvironmentObject var setupManager: SetupManager
     @State private var showPairing = false
 
     var body: some View {
@@ -24,19 +25,9 @@ struct StatusPopover: View {
                 Divider()
 
                 // Pair action
-                Button {
+                MenuRow(icon: "plus.circle", label: "Pair New Device") {
                     showPairing = true
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle")
-                        Text("Pair New Device")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
 
                 Divider()
             }
@@ -110,7 +101,14 @@ struct StatusPopover: View {
                 .multilineTextAlignment(.center)
 
             Button("Start Daemon") {
-                state.startDaemon()
+                do {
+                    try setupManager.startDaemon()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        state.poll()
+                    }
+                } catch {
+                    state.startDaemon()
+                }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -210,27 +208,47 @@ struct StatusPopover: View {
     // MARK: - Footer
 
     private var footerSection: some View {
-        HStack {
-            if state.status.isRunning {
-                Button("Stop Daemon") {
-                    state.stopDaemon()
+        VStack(alignment: .leading, spacing: 0) {
+            if let error = setupManager.setupError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+            }
+
+            HStack(spacing: 0) {
+                if state.status.isRunning {
+                    MenuRow(label: "Stop Daemon", font: .caption, color: .secondary) {
+                        do {
+                            try setupManager.stopDaemon()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                state.poll()
+                            }
+                        } catch {
+                            state.stopDaemon()
+                        }
+                    }
+                } else if case .stopped = state.status {
+                    MenuRow(label: "Start Daemon", font: .caption, color: .secondary) {
+                        do {
+                            try setupManager.startDaemon()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                state.poll()
+                            }
+                        } catch {
+                            state.startDaemon()
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
 
-            Spacer()
+                Spacer()
 
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+                MenuRow(label: "Quit", font: .caption, color: .secondary) {
+                    NSApplication.shared.terminate(nil)
+                }
             }
-            .buttonStyle(.plain)
-            .font(.caption)
-            .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     // MARK: - Helpers
@@ -244,6 +262,44 @@ struct StatusPopover: View {
             let h = seconds / 3600
             let m = (seconds % 3600) / 60
             return "\(h)h \(m)m"
+        }
+    }
+}
+
+// MARK: - Hoverable Menu Row
+
+/// A row that highlights on hover like a native NSMenu item.
+private struct MenuRow: View {
+    var icon: String?
+    var label: String
+    var font: Font = .body
+    var color: Color = .primary
+    var action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                if let icon {
+                    Image(systemName: icon)
+                }
+                Text(label)
+                    .font(font)
+                    .foregroundColor(isHovered ? .white : color)
+            }
+            .frame(maxWidth: icon != nil ? .infinity : nil, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(isHovered ? Color.accentColor : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 }

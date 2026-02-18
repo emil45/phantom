@@ -15,5 +15,8 @@ ios/*.xcworkspace/xcuserdata/
 # macOS
 .DS_Store
 
+# Build artifacts
+build/
+
 # Phantom data
 .phantom/

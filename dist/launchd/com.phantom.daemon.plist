@@ -1,3 +1,13 @@
+<!--
+  TEMPLATE ONLY — for reference and manual installs.
+
+  When using Phantom.app, SetupManager generates this plist at runtime
+  at ~/Library/LaunchAgents/com.phantom.daemon.plist with the correct
+  path to the embedded daemon binary (Bundle.main.bundleURL).
+
+  For standalone daemon installs (e.g. via cargo install), copy this
+  file to ~/Library/LaunchAgents/ and adjust the binary path.
+-->
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -7,16 +17,15 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/phantom</string>
+        <string>daemon</string>
     </array>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/usr/local/var/log/phantom.log</string>
+    <string>/Users/YOU/.phantom/logs/daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>/usr/local/var/log/phantom.log</string>
-    <key>WorkingDirectory</key>
-    <string>/usr/local/var/phantom</string>
+    <string>/Users/YOU/.phantom/logs/daemon.log</string>
 </dict>
 </plist>

@@ -16,6 +16,9 @@
 		A10007 /* DeviceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
 		A10008 /* SessionRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
 		A10009 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
+		A10010 /* SetupManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
+		A10011 /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10013; };
+		A10012 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B10014; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +33,9 @@
 		B10009 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		B10010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10011 /* PhantomBar.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PhantomBar.entitlements; sourceTree = "<group>"; };
+		B10012 /* SetupManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupManager.swift; sourceTree = "<group>"; };
+		B10013 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		B10014 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		C10001 /* PhantomBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PhantomBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -38,6 +44,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10011 /* ServiceManagement.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -49,7 +56,16 @@
 			children = (
 				E10002 /* PhantomBar */,
 				E10005 /* Products */,
+				E10006 /* Frameworks */,
 			);
+			sourceTree = "<group>";
+		};
+		E10006 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B10013 /* ServiceManagement.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 		E10002 /* PhantomBar */ = {
@@ -58,8 +74,10 @@
 				B10001 /* PhantomBarApp.swift */,
 				B10002 /* DaemonClient.swift */,
 				B10003 /* DaemonMonitor.swift */,
+				B10012 /* SetupManager.swift */,
 				E10003 /* Models */,
 				E10004 /* Views */,
+				E10007 /* Resources */,
 				B10010 /* Info.plist */,
 				B10011 /* PhantomBar.entitlements */,
 			);
@@ -86,6 +104,14 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		E10007 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B10014 /* AppIcon.icns */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		E10005 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -102,6 +128,7 @@
 			buildConfigurationList = G10003 /* Build configuration list for PBXNativeTarget "PhantomBar" */;
 			buildPhases = (
 				F10002 /* Sources */,
+				F10003 /* Resources */,
 				D10001 /* Frameworks */,
 			);
 			buildRules = (
@@ -146,6 +173,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		F10003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10012 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		F10002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -160,6 +198,7 @@
 				A10007 /* DeviceRow.swift in Sources */,
 				A10008 /* SessionRow.swift in Sources */,
 				A10009 /* PairingView.swift in Sources */,
+				A10010 /* SetupManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

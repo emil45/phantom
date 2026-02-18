@@ -65,7 +65,12 @@ struct DaemonMonitor {
     }
 
     private static func findPhantomBinary() -> String? {
+        // Check app bundle first (embedded daemon in .app/Contents/MacOS/)
+        let bundlePath = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/MacOS/phantom-daemon").path
+
         let candidates = [
+            bundlePath,
             "/usr/local/bin/phantom",
             "/opt/homebrew/bin/phantom",
             FileManager.default.homeDirectoryForCurrentUser

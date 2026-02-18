@@ -52,7 +52,10 @@ class DaemonState: ObservableObject {
             return
         }
 
-        status = .connecting
+        // Only show "connecting" on first connect, not during refresh polls
+        if !status.isRunning {
+            status = .connecting
+        }
 
         Task {
             do {
