@@ -6,6 +6,7 @@ Zero-config secure remote terminal access over QUIC. iOS app connects to a Rust 
 
 - **daemon/** — Rust workspace: `phantom-daemon` (QUIC server, auth, PTY bridge) + `phantom-frame` (binary frame codec)
 - **ios/** — SwiftUI app using Network.framework (QUIC) + SwiftTerm (terminal emulation)
+- **macos/** — Menu bar app (PhantomBar): NSMenu-based status item, daemon lifecycle via LaunchAgent, IPC over Unix domain socket
 
 CLI binary: `phantom daemon | pair | rotate-cert | device list|remove`
 
@@ -19,6 +20,7 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 
 - Daemon: `cd daemon && cargo build` / `cargo test`
 - iOS: open `ios/Phantom.xcodeproj` in Xcode (iOS 16+, SPM deps: SwiftTerm, CodeScanner)
+- macOS: `cd macos && xcodebuild -project PhantomBar.xcodeproj -scheme PhantomBar build` (macOS 13+)
 - Always `cd daemon/` before cargo commands — Xcode builds can change cwd
 
 ## Key Design Decisions
@@ -29,3 +31,7 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 - File-based pairing tokens at `~/.phantom/pairing_tokens.json` (shared between `phantom pair` and `phantom daemon` processes)
 - Optional TOML config at `~/.phantom/config.toml` (rate limits, reaper interval, bind address)
 - `TerminalDataSource` must be `@StateObject` in PhantomApp, not in views (SwiftUI recreation breaks terminal data pipeline)
+- PhantomBar uses NSMenu (not NSPopover) — native keyboard nav, VoiceOver, and appearance handling for free
+- Menu bar icon must use `isTemplate = true` for correct light/dark/auto-hide rendering
+- Pairing flow opens in a floating NSPanel, not a sheet on a popover
+- DeviceRow.swift and SessionRow.swift are dead code (devices/sessions are standard NSMenuItems now)

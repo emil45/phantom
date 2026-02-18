@@ -1,304 +1,68 @@
 import SwiftUI
 
-struct StatusPopover: View {
-    @EnvironmentObject var state: DaemonState
-    @EnvironmentObject var setupManager: SetupManager
-    @State private var showPairing = false
-
-    private var status: ConnectionStatus { state.snapshot.status }
+/// SwiftUI view embedded via NSHostingView as the status header menu item.
+struct StatusHeaderView: View {
+    let snapshot: DaemonSnapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            headerSection
-            Divider()
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 7, height: 7)
 
-            // Content — switches based on daemon state
-            Group {
-                switch status {
-                case .stopped:
-                    stoppedSection
-                case .error(let msg):
-                    errorSection(msg)
-                default:
-                    connectedContent
+                Text(statusTitle)
+                    .font(.system(.body, weight: .medium))
+
+                if case .running(let uptime) = snapshot.status {
+                    Text("\u{00B7} \(formatUptime(uptime))")
+                        .foregroundStyle(.secondary)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: status)
 
-            // Footer
-            footerSection
-        }
-        .frame(width: 320)
-        .sheet(isPresented: $showPairing) {
-            PairingView()
-                .environmentObject(state)
-        }
-    }
-
-    // MARK: - Header
-
-    private var headerSection: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "terminal")
-                .font(.title3)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Phantom")
-                    .font(.headline)
-
-                statusText
+            if snapshot.status.isRunning, !snapshot.bindAddress.isEmpty {
+                Text(snapshot.bindAddress)
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
             }
-
-            Spacer()
-
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .animation(.easeInOut(duration: 0.3), value: status)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-
-    @ViewBuilder
-    private var statusText: some View {
-        switch status {
-        case .stopped:
-            Text("Not running")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        case .connecting:
-            Text("Connecting...")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        case .running(let uptime):
-            Text("Running \(formatUptime(uptime))")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        case .error:
-            Text("Error")
-                .font(.caption)
-                .foregroundColor(.red)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statusColor: Color {
-        switch status {
+        switch snapshot.status {
         case .running: .green
-        case .connecting: .yellow
-        case .stopped, .error: .red
+        case .connecting: .orange
+        case .stopped: .secondary
+        case .error: .red
         }
     }
 
-    // MARK: - Connected Content
-
-    private var connectedContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            devicesSection
-            Divider()
-
-            sessionsSection
-            Divider()
-
-            MenuRow(icon: "plus.circle", label: "Pair New Device") {
-                showPairing = true
-            }
-
-            Divider()
+    private var statusTitle: String {
+        switch snapshot.status {
+        case .running: "Phantom Running"
+        case .connecting: "Connecting\u{2026}"
+        case .stopped: "Phantom Stopped"
+        case .error: "Error"
         }
     }
-
-    // MARK: - Stopped
-
-    private var stoppedSection: some View {
-        VStack(spacing: 12) {
-            Text("The Phantom daemon is not running.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-
-            Button("Start Daemon") {
-                Task { await state.startDaemon() }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 20)
-    }
-
-    private func errorSection(_ message: String) -> some View {
-        VStack(spacing: 8) {
-            Text(message)
-                .font(.caption)
-                .foregroundColor(.red)
-                .multilineTextAlignment(.center)
-
-            Button("Retry") {
-                state.refresh()
-            }
-            .controlSize(.small)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 16)
-    }
-
-    // MARK: - Devices
-
-    private var devicesSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("DEVICES")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .fontWeight(.medium)
-                Spacer()
-                Text("\(state.snapshot.devices.count)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-
-            if state.snapshot.devices.isEmpty {
-                Text("No paired devices")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
-            } else {
-                ForEach(state.snapshot.devices) { device in
-                    DeviceRow(device: device) {
-                        state.revokeDevice(device.deviceId)
-                    }
-                    .padding(.horizontal, 12)
-                }
-                .padding(.bottom, 6)
-            }
-        }
-    }
-
-    // MARK: - Sessions
-
-    private var sessionsSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("SESSIONS")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .fontWeight(.medium)
-                Spacer()
-                Text("\(state.snapshot.sessions.count)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-
-            if state.snapshot.sessions.isEmpty {
-                Text("No active sessions")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
-            } else {
-                ForEach(state.snapshot.sessions) { session in
-                    SessionRow(session: session) {
-                        state.destroySession(session.id)
-                    }
-                    .padding(.horizontal, 12)
-                }
-                .padding(.bottom, 6)
-            }
-        }
-    }
-
-    // MARK: - Footer
-
-    private var footerSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let error = setupManager.setupError {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
-            }
-
-            HStack(spacing: 0) {
-                if status.isRunning {
-                    MenuRow(label: "Stop Daemon", font: .caption, color: .secondary) {
-                        Task { await state.stopDaemon() }
-                    }
-                } else if case .stopped = status {
-                    MenuRow(label: "Start Daemon", font: .caption, color: .secondary) {
-                        Task { await state.startDaemon() }
-                    }
-                }
-
-                Spacer()
-
-                MenuRow(label: "Quit", font: .caption, color: .secondary) {
-                    NSApplication.shared.terminate(nil)
-                }
-            }
-        }
-    }
-
-    // MARK: - Helpers
 
     private func formatUptime(_ seconds: UInt64) -> String {
-        if seconds < 60 {
-            return "\(seconds)s"
-        } else if seconds < 3600 {
+        switch seconds {
+        case 0..<60:
+            return "just now"
+        case 60..<3600:
             return "\(seconds / 60)m"
-        } else {
+        case 3600..<86400:
             let h = seconds / 3600
             let m = (seconds % 3600) / 60
-            return "\(h)h \(m)m"
-        }
-    }
-}
-
-// MARK: - Hoverable Menu Row
-
-/// A row that highlights on hover like a native NSMenu item.
-private struct MenuRow: View {
-    var icon: String?
-    var label: String
-    var font: Font = .body
-    var color: Color = .primary
-    var action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                if let icon {
-                    Image(systemName: icon)
-                }
-                Text(label)
-                    .font(font)
-                    .foregroundColor(isHovered ? .white : color)
-            }
-            .frame(maxWidth: icon != nil ? .infinity : nil, alignment: .leading)
-            .contentShape(Rectangle())
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isHovered ? Color.accentColor : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
+            return m > 0 ? "\(h)h \(m)m" : "\(h)h"
+        default:
+            let d = seconds / 86400
+            let h = (seconds % 86400) / 3600
+            return h > 0 ? "\(d)d \(h)h" : "\(d)d"
         }
     }
 }

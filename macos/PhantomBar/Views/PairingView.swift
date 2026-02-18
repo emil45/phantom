@@ -3,88 +3,132 @@ import CoreImage.CIFilterBuiltins
 
 struct PairingView: View {
     @EnvironmentObject var state: DaemonState
-    @Environment(\.dismiss) var dismiss
 
     @State private var pairingInfo: PairingInfo?
     @State private var qrImage: NSImage?
     @State private var error: String?
     @State private var timeRemaining: Int = 300
-    @State private var showManualEntry = false
-    @State private var timer: Timer?
+    @State private var isExpired = false
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Pair New Device")
-                .font(.headline)
-
             if let error {
-                Text(error)
-                    .foregroundColor(.red)
-                    .font(.caption)
+                errorContent(error)
             } else if let info = pairingInfo {
-                // QR Code (generated off main thread)
-                if let qrImage {
-                    Image(nsImage: qrImage)
-                        .interpolation(.none)
-                        .resizable()
-                        .frame(width: 200, height: 200)
-                } else {
-                    ProgressView()
-                        .frame(width: 200, height: 200)
-                }
-
-                Text("Scan with the Phantom iOS app")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-                // Countdown
-                HStack {
-                    Image(systemName: "clock")
-                    Text("Expires in \(formattedTime)")
-                }
-                .font(.caption)
-                .foregroundColor(timeRemaining < 60 ? .red : .secondary)
-
-                // Manual entry
-                DisclosureGroup("Manual Entry", isExpanded: $showManualEntry) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        LabeledField(label: "Host", value: "\(info.host):\(info.port)")
-                        LabeledField(label: "Token", value: info.token)
-                        LabeledField(label: "Fingerprint", value: info.fingerprint)
-                    }
-                    .padding(.top, 4)
-                }
-                .font(.caption)
+                qrContent(info)
             } else {
-                ProgressView()
-                    .scaleEffect(0.8)
-                Text("Generating pairing code...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                loadingContent
             }
-
-            Button("Done") {
-                dismiss()
-            }
-            .keyboardShortcut(.cancelAction)
         }
-        .padding(20)
-        .frame(width: 280)
+        .padding(24)
+        .frame(width: 320)
         .task {
             await loadPairing()
         }
         .task(id: pairingInfo?.token) {
             guard let info = pairingInfo else { return }
+
+            // Generate QR code off main thread
             let payload = info.qrPayloadJson
             let image = await Task.detached(priority: .userInitiated) {
                 Self.makeQRCode(from: payload)
             }.value
             qrImage = image
-        }
-        .onDisappear {
-            timer?.invalidate()
+
+            // Countdown
+            while timeRemaining > 0 && !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                timeRemaining -= 1
+            }
+            if timeRemaining <= 0 && !Task.isCancelled {
+                isExpired = true
+                pairingInfo = nil
+                qrImage = nil
+                error = "Pairing code expired."
+            }
         }
     }
+
+    // MARK: - Content States
+
+    @ViewBuilder
+    private func qrContent(_ info: PairingInfo) -> some View {
+        if let qrImage {
+            Image(nsImage: qrImage)
+                .interpolation(.none)
+                .resizable()
+                .frame(width: 200, height: 200)
+        } else {
+            ProgressView()
+                .frame(width: 200, height: 200)
+        }
+
+        Text("Scan with the Phantom iOS app")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+
+        HStack(spacing: 4) {
+            Image(systemName: "clock")
+            Text("Expires in \(formattedTime)")
+        }
+        .font(.caption)
+        .foregroundStyle(timeRemaining < 60 ? .red : .secondary)
+
+        DisclosureGroup("Manual Entry") {
+            VStack(alignment: .leading, spacing: 6) {
+                LabeledField(label: "Host", value: "\(info.host):\(info.port)")
+                LabeledField(label: "Token", value: info.token)
+                LabeledField(label: "Fingerprint", value: info.fingerprint)
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption)
+
+        doneButton
+    }
+
+    @ViewBuilder
+    private func errorContent(_ message: String) -> some View {
+        Image(systemName: "exclamationmark.triangle")
+            .font(.largeTitle)
+            .foregroundStyle(.secondary)
+
+        Text(message)
+            .foregroundStyle(.red)
+            .font(.caption)
+            .multilineTextAlignment(.center)
+
+        if isExpired {
+            Button("Generate New Code") {
+                isExpired = false
+                error = nil
+                Task { await loadPairing() }
+            }
+            .controlSize(.small)
+        }
+
+        doneButton
+    }
+
+    private var loadingContent: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.8)
+            Text("Generating pairing code\u{2026}")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var doneButton: some View {
+        Button("Done") {
+            NSApp.keyWindow?.close()
+        }
+        .keyboardShortcut(.cancelAction)
+    }
+
+    // MARK: - Helpers
 
     private var formattedTime: String {
         let minutes = timeRemaining / 60
@@ -97,22 +141,8 @@ struct PairingView: View {
             let info = try await state.createPairing()
             pairingInfo = info
             timeRemaining = Int(info.expiresInSecs)
-            startCountdown()
         } catch {
             self.error = error.localizedDescription
-        }
-    }
-
-    private func startCountdown() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            if timeRemaining > 0 {
-                timeRemaining -= 1
-            } else {
-                timer?.invalidate()
-                pairingInfo = nil
-                qrImage = nil
-                error = "Pairing code expired. Close and try again."
-            }
         }
     }
 
@@ -139,7 +169,7 @@ private struct LabeledField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .font(.caption2)
             Text(value)
                 .font(.system(.caption, design: .monospaced))

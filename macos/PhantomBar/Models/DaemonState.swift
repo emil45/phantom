@@ -33,6 +33,7 @@ class DaemonState: ObservableObject {
     private let client = DaemonClient()
     private let monitor = DaemonMonitor()
     private var pollingTask: Task<Void, Never>?
+    private var currentInterval: Duration?
 
     var hasConnectedDevices: Bool {
         snapshot.devices.contains { $0.isConnected }
@@ -40,10 +41,12 @@ class DaemonState: ObservableObject {
 
     // MARK: - Polling
 
-    /// Start polling. `fast: true` polls every 3s (popover open), `fast: false` every 15s (background icon updates).
+    /// Start polling. `fast: true` polls every 3s (menu open), `fast: false` every 15s (background).
     func startPolling(fast: Bool) {
-        pollingTask?.cancel()
         let interval: Duration = fast ? .seconds(3) : .seconds(15)
+        guard interval != currentInterval else { return }
+        currentInterval = interval
+        pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             // Immediate poll on start
             await self?.poll()
@@ -58,6 +61,7 @@ class DaemonState: ObservableObject {
     func stopPolling() {
         pollingTask?.cancel()
         pollingTask = nil
+        currentInterval = nil
     }
 
     /// Force an immediate poll (e.g. from a manual retry action).
