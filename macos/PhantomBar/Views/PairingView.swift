@@ -9,6 +9,7 @@ struct PairingView: View {
     @State private var error: String?
     @State private var timeRemaining: Int = 300
     @State private var isExpired = false
+    @State private var showManualEntry = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -75,7 +76,7 @@ struct PairingView: View {
         .font(.caption)
         .foregroundStyle(timeRemaining < 60 ? .red : .secondary)
 
-        DisclosureGroup("Manual Entry") {
+        DisclosureGroup("Manual Entry", isExpanded: $showManualEntry) {
             VStack(alignment: .leading, spacing: 6) {
                 LabeledField(label: "Host", value: "\(info.host):\(info.port)")
                 LabeledField(label: "Token", value: info.token)
@@ -84,6 +85,7 @@ struct PairingView: View {
             .padding(.top, 4)
         }
         .font(.caption)
+        .animation(.easeInOut(duration: 0.15), value: showManualEntry)
 
         doneButton
     }
