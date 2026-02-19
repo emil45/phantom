@@ -109,10 +109,18 @@ pub struct PtySession {
     pub attached: bool,
     /// Cancellation token for the current bridge tasks
     pub bridge_cancel: Option<CancellationToken>,
+    /// Device that created this session
+    pub created_by_device_id: Option<String>,
+    /// Last time a client attached to this session
+    pub last_attached_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Device that last attached to this session
+    pub last_attached_by: Option<String>,
+    /// Last time the session had client input activity
+    pub last_activity_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl PtySession {
-    pub fn spawn(id: String, rows: u16, cols: u16) -> Result<Self> {
+    pub fn spawn(id: String, rows: u16, cols: u16, device_id: Option<&str>) -> Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -133,6 +141,7 @@ impl PtySession {
         let writer = pair.master.take_writer().context("take PTY writer")?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let now = chrono::Utc::now();
 
         Ok(Self {
             id,
@@ -141,10 +150,14 @@ impl PtySession {
             child,
             master: pair.master,
             scrollback: Arc::new(Mutex::new(ScrollbackBuffer::new(65536))),
-            created_at: chrono::Utc::now(),
+            created_at: now,
             shell,
             attached: false,
             bridge_cancel: None,
+            created_by_device_id: device_id.map(|s| s.to_string()),
+            last_attached_at: None,
+            last_attached_by: None,
+            last_activity_at: now,
         })
     }
 
@@ -184,9 +197,10 @@ impl SessionManager {
         &self,
         rows: u16,
         cols: u16,
+        device_id: Option<&str>,
     ) -> Result<String> {
         let id = uuid_short();
-        let session = PtySession::spawn(id.clone(), rows, cols)
+        let session = PtySession::spawn(id.clone(), rows, cols, device_id)
             .context("spawn session")?;
 
         self.sessions
@@ -214,6 +228,10 @@ impl SessionManager {
                     created_at: s.created_at,
                     shell: s.shell.clone(),
                     attached: s.attached,
+                    created_by_device_id: s.created_by_device_id.clone(),
+                    last_attached_at: s.last_attached_at,
+                    last_attached_by: s.last_attached_by.clone(),
+                    last_activity_at: s.last_activity_at,
                 }
             })
             .collect()
@@ -348,6 +366,13 @@ pub struct SessionInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub shell: String,
     pub attached: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_attached_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_attached_by: Option<String>,
+    pub last_activity_at: chrono::DateTime<chrono::Utc>,
 }
 
 fn uuid_short() -> String {

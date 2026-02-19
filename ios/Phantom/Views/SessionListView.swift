@@ -7,6 +7,7 @@ struct SessionsSheet: View {
     let dataSource: TerminalDataSource
     @Environment(\.dismiss) private var dismiss
     @Environment(\.phantomColors) private var colors
+    @State private var sessionToDestroy: SessionInfo?
 
     var body: some View {
         NavigationStack {
@@ -49,6 +50,20 @@ struct SessionsSheet: View {
             }
             .refreshable {
                 reconnectManager.listSessions()
+            }
+            .alert("End Session?", isPresented: .init(
+                get: { sessionToDestroy != nil },
+                set: { if !$0 { sessionToDestroy = nil } }
+            )) {
+                Button("Cancel", role: .cancel) { sessionToDestroy = nil }
+                Button("End Session", role: .destructive) {
+                    if let session = sessionToDestroy {
+                        reconnectManager.destroySession(session.id)
+                        sessionToDestroy = nil
+                    }
+                }
+            } message: {
+                Text("This will terminate the shell process. Any unsaved work will be lost.")
             }
         }
     }
@@ -106,7 +121,7 @@ struct SessionsSheet: View {
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
-                            reconnectManager.destroySession(session.id)
+                            sessionToDestroy = session
                         } label: {
                             Label("End", systemImage: "trash")
                         }
@@ -132,8 +147,12 @@ struct SessionsSheet: View {
     private var newSessionSection: some View {
         Section {
             Button {
-                reconnectManager.createSession(rows: 24, cols: 80)
                 dismiss()
+                // Detach current session first (bridge consumes the stream)
+                reconnectManager.detachSession()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    reconnectManager.createSession(rows: 24, cols: 80)
+                }
             } label: {
                 Label("New Session", systemImage: "plus")
                     .font(PhantomFont.headline)
@@ -160,7 +179,7 @@ struct SessionsSheet: View {
                 Text(session.shell.map { ($0 as NSString).lastPathComponent } ?? "shell")
                     .font(.system(.subheadline, design: .monospaced, weight: .medium))
                     .foregroundStyle(colors.textPrimary)
-                Text(String(session.id.prefix(12)))
+                Text(sessionSubtitle(session))
                     .font(PhantomFont.captionMono)
                     .foregroundStyle(.secondary)
             }
@@ -182,6 +201,33 @@ struct SessionsSheet: View {
             }
         }
         .padding(.vertical, PhantomSpacing.xxs)
+    }
+
+    private func sessionSubtitle(_ session: SessionInfo) -> String {
+        if let activity = session.lastActivityAt, let date = parseISO8601(activity) {
+            return relativeTime(date)
+        }
+        if let created = parseISO8601(session.createdAt) {
+            return relativeTime(created)
+        }
+        return String(session.id.prefix(12))
+    }
+
+    private func parseISO8601(_ string: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string) ?? {
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: string)
+        }()
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let interval = -date.timeIntervalSinceNow
+        if interval < 60 { return "just now" }
+        if interval < 3600 { return "\(Int(interval / 60))m ago" }
+        if interval < 86400 { return "\(Int(interval / 3600))h ago" }
+        return "\(Int(interval / 86400))d ago"
     }
 
     // MARK: - Empty State

@@ -374,20 +374,12 @@ final class ReconnectManager: ObservableObject {
                 switch result {
                 case .success(let data):
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let sessionsJson = json["sessions"] as? [[String: Any]] {
-                        let sessions = sessionsJson.compactMap { s -> SessionInfo? in
-                            guard let id = s["id"] as? String,
-                                  let alive = s["alive"] as? Bool else { return nil }
-                            return SessionInfo(
-                                id: id,
-                                alive: alive,
-                                createdAt: s["created_at"] as? String ?? "",
-                                shell: s["shell"] as? String,
-                                attached: s["attached"] as? Bool ?? false
-                            )
-                        }
-                        Task { @MainActor in
-                            self?.sessions = sessions
+                       let sessionsData = try? JSONSerialization.data(withJSONObject: json["sessions"] ?? []) {
+                        let decoder = JSONDecoder()
+                        if let sessions = try? decoder.decode([SessionInfo].self, from: sessionsData) {
+                            Task { @MainActor in
+                                self?.sessions = sessions
+                            }
                         }
                     }
                 case .failure(let error):

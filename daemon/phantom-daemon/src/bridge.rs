@@ -19,7 +19,7 @@ pub async fn handle_session_stream(
     mut send: SendStream,
     mut recv: RecvStream,
     session_manager: &SessionManager,
-    _device_id: &str,
+    device_id: &str,
 ) -> Result<()> {
     loop {
         // Read the session request (length-prefixed JSON like control messages)
@@ -51,8 +51,15 @@ pub async fn handle_session_stream(
                 let request_id = req["request_id"].as_str().unwrap_or("");
 
                 let session_id = session_manager
-                    .create_session(rows, cols)
+                    .create_session(rows, cols, Some(device_id))
                     .context("create session")?;
+
+                // Set initial attach metadata (create immediately enters bridge)
+                if let Some(session) = session_manager.get_session(&session_id) {
+                    let mut s = session.lock().expect("session lock");
+                    s.last_attached_at = Some(chrono::Utc::now());
+                    s.last_attached_by = Some(device_id.to_string());
+                }
 
                 let resp = serde_json::json!({
                     "type": "session_created",
@@ -73,6 +80,13 @@ pub async fn handle_session_stream(
                 let session = session_manager
                     .get_session(session_id)
                     .context("session not found")?;
+
+                // Update attach metadata
+                {
+                    let mut s = session.lock().expect("session lock");
+                    s.last_attached_at = Some(chrono::Utc::now());
+                    s.last_attached_by = Some(device_id.to_string());
+                }
 
                 let resp = serde_json::json!({
                     "type": "session_attached",
@@ -229,7 +243,7 @@ async fn run_bridge_inner(
     pty_reader: Box<dyn Read + Send>,
     pty_writer: Arc<Mutex<Box<dyn Write + Send>>>,
     scrollback: Arc<Mutex<ScrollbackBuffer>>,
-    session_for_resize: Arc<Mutex<PtySession>>,
+    session_ref: Arc<Mutex<PtySession>>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let mut seq_out: u64 = 1;
@@ -359,12 +373,16 @@ async fn run_bridge_inner(
                                             return;
                                         }
                                         drop(w);
+                                        // Track last input activity
+                                        if let Ok(mut s) = session_ref.try_lock() {
+                                            s.last_activity_at = chrono::Utc::now();
+                                        }
                                     }
                                     FrameType::Resize => {
                                         if let Some((cols, rows)) = frame.parse_resize() {
                                             let cols = cols.clamp(1, 500);
                                             let rows = rows.clamp(1, 500);
-                                            let s = session_for_resize.lock()
+                                            let s = session_ref.lock()
                                                 .expect("session lock");
                                             if let Err(e) = s.resize(rows, cols) {
                                                 warn!("resize error: {e}");

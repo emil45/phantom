@@ -528,3 +528,332 @@ async fn session_reaper_cleans_dead_sessions() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn two_session_lifecycle() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    let harness = TestHarness::new().await?;
+    let conn = harness.connect_and_auth().await?;
+
+    // Create session A
+    let (mut send_a, mut recv_a) = conn.open_bi().await?;
+    send_json(&mut send_a, &serde_json::json!({
+        "type": "create_session",
+        "request_id": "create-a",
+        "rows": 24,
+        "cols": 80,
+    })).await?;
+    let resp_a = recv_json(&mut recv_a).await?;
+    assert_eq!(resp_a["type"], "session_created");
+    let session_a = resp_a["session_id"].as_str().unwrap().to_string();
+
+    // Write to session A
+    let input_a = Frame::data(1, b"echo SESSION_A_MARKER\n".to_vec());
+    send_a.write_all(&frame::encode(&input_a, false)?).await?;
+
+    // Wait for output on A
+    let mut decoder_a = FrameDecoder::new();
+    let mut output_a = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if tokio::time::Instant::now() > deadline { break; }
+        let mut buf = [0u8; 4096];
+        match tokio::time::timeout(Duration::from_millis(200), recv_a.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                decoder_a.feed(&buf[..n]);
+                while let Some(f) = decoder_a.decode_next()? {
+                    if f.frame_type == FrameType::Data { output_a.extend_from_slice(&f.payload); }
+                }
+                if String::from_utf8_lossy(&output_a).contains("SESSION_A_MARKER") { break; }
+            }
+            _ => continue,
+        }
+    }
+    assert!(String::from_utf8_lossy(&output_a).contains("SESSION_A_MARKER"));
+
+    // Detach A
+    send_a.finish()?;
+    drop(send_a);
+    drop(recv_a);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Create session B
+    let (mut send_b, mut recv_b) = conn.open_bi().await?;
+    send_json(&mut send_b, &serde_json::json!({
+        "type": "create_session",
+        "request_id": "create-b",
+        "rows": 24,
+        "cols": 80,
+    })).await?;
+    let resp_b = recv_json(&mut recv_b).await?;
+    assert_eq!(resp_b["type"], "session_created");
+    let session_b = resp_b["session_id"].as_str().unwrap().to_string();
+    assert_ne!(session_a, session_b);
+
+    // Write to session B
+    let input_b = Frame::data(1, b"echo SESSION_B_MARKER\n".to_vec());
+    send_b.write_all(&frame::encode(&input_b, false)?).await?;
+
+    let mut decoder_b = FrameDecoder::new();
+    let mut output_b = Vec::new();
+    let deadline2 = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if tokio::time::Instant::now() > deadline2 { break; }
+        let mut buf = [0u8; 4096];
+        match tokio::time::timeout(Duration::from_millis(200), recv_b.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                decoder_b.feed(&buf[..n]);
+                while let Some(f) = decoder_b.decode_next()? {
+                    if f.frame_type == FrameType::Data { output_b.extend_from_slice(&f.payload); }
+                }
+                if String::from_utf8_lossy(&output_b).contains("SESSION_B_MARKER") { break; }
+            }
+            _ => continue,
+        }
+    }
+    assert!(String::from_utf8_lossy(&output_b).contains("SESSION_B_MARKER"));
+
+    // Detach B
+    send_b.finish()?;
+    drop(send_b);
+    drop(recv_b);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // List sessions — both should exist
+    let (mut send_l, mut recv_l) = conn.open_bi().await?;
+    send_json(&mut send_l, &serde_json::json!({
+        "type": "list_sessions",
+        "request_id": "list-both",
+    })).await?;
+    let list_resp = recv_json(&mut recv_l).await?;
+    let sessions = list_resp["sessions"].as_array().unwrap();
+    assert!(sessions.len() >= 2, "expected at least 2 sessions, got {}", sessions.len());
+    assert!(sessions.iter().any(|s| s["id"].as_str() == Some(&session_a)));
+    assert!(sessions.iter().any(|s| s["id"].as_str() == Some(&session_b)));
+    drop(send_l);
+    drop(recv_l);
+
+    // Reattach A and verify scrollback
+    let (mut send_ra, mut recv_ra) = conn.open_bi().await?;
+    send_json(&mut send_ra, &serde_json::json!({
+        "type": "attach_session",
+        "request_id": "reattach-a",
+        "session_id": &session_a,
+    })).await?;
+    let attach_resp = recv_json(&mut recv_ra).await?;
+    assert_eq!(attach_resp["type"], "session_attached");
+
+    let mut decoder_ra = FrameDecoder::new();
+    let mut scrollback_a = Vec::new();
+    let deadline3 = tokio::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        if tokio::time::Instant::now() > deadline3 { break; }
+        let mut buf = [0u8; 4096];
+        match tokio::time::timeout(Duration::from_millis(200), recv_ra.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                decoder_ra.feed(&buf[..n]);
+                while let Some(f) = decoder_ra.decode_next()? {
+                    if f.frame_type == FrameType::Scrollback || f.frame_type == FrameType::Data {
+                        scrollback_a.extend_from_slice(&f.payload);
+                    }
+                }
+                if String::from_utf8_lossy(&scrollback_a).contains("SESSION_A_MARKER") { break; }
+            }
+            _ => continue,
+        }
+    }
+    assert!(
+        String::from_utf8_lossy(&scrollback_a).contains("SESSION_A_MARKER"),
+        "session A scrollback should contain its marker"
+    );
+    // Session A scrollback should NOT contain B's marker
+    assert!(
+        !String::from_utf8_lossy(&scrollback_a).contains("SESSION_B_MARKER"),
+        "session A scrollback should not contain session B's marker"
+    );
+    send_ra.finish()?;
+    drop(send_ra);
+    drop(recv_ra);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Destroy both sessions
+    for (sid, label) in [(&session_a, "destroy-a"), (&session_b, "destroy-b")] {
+        let (mut s, mut r) = conn.open_bi().await?;
+        send_json(&mut s, &serde_json::json!({
+            "type": "destroy_session",
+            "request_id": label,
+            "session_id": sid,
+        })).await?;
+        let resp = recv_json(&mut r).await?;
+        assert_eq!(resp["success"], true, "destroy {} failed: {:?}", sid, resp);
+    }
+
+    // Verify both are gone
+    let (mut send_final, mut recv_final) = conn.open_bi().await?;
+    send_json(&mut send_final, &serde_json::json!({
+        "type": "list_sessions",
+        "request_id": "list-final",
+    })).await?;
+    let final_resp = recv_json(&mut recv_final).await?;
+    let final_sessions = final_resp["sessions"].as_array().unwrap();
+    assert!(
+        !final_sessions.iter().any(|s| s["id"].as_str() == Some(&session_a) || s["id"].as_str() == Some(&session_b)),
+        "both sessions should be destroyed"
+    );
+
+    conn.close(quinn::VarInt::from_u32(0), b"done");
+    Ok(())
+}
+
+#[tokio::test]
+async fn session_metadata_correctness() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    let harness = TestHarness::new().await?;
+    let conn = harness.connect_and_auth().await?;
+
+    // Create session
+    let (mut send, mut recv) = conn.open_bi().await?;
+    send_json(&mut send, &serde_json::json!({
+        "type": "create_session",
+        "request_id": "meta-create",
+        "rows": 24,
+        "cols": 80,
+    })).await?;
+    let resp = recv_json(&mut recv).await?;
+    let session_id = resp["session_id"].as_str().unwrap().to_string();
+
+    // Detach
+    send.finish()?;
+    drop(send);
+    drop(recv);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // List and check metadata
+    let (mut send_l, mut recv_l) = conn.open_bi().await?;
+    send_json(&mut send_l, &serde_json::json!({
+        "type": "list_sessions",
+        "request_id": "meta-list",
+    })).await?;
+    let list_resp = recv_json(&mut recv_l).await?;
+    let sessions = list_resp["sessions"].as_array().unwrap();
+    let session = sessions.iter().find(|s| s["id"].as_str() == Some(&session_id)).unwrap();
+
+    // Verify metadata fields
+    assert!(session["alive"].as_bool().unwrap(), "session should be alive");
+    assert!(!session["attached"].as_bool().unwrap(), "session should be detached");
+    assert!(session["created_at"].as_str().is_some(), "created_at should exist");
+    assert!(session["shell"].as_str().is_some(), "shell should exist");
+    assert_eq!(
+        session["created_by_device_id"].as_str().unwrap(),
+        "test-device-001",
+        "created_by_device_id should match auth device"
+    );
+    assert!(session["last_attached_at"].as_str().is_some(), "last_attached_at should exist");
+    assert_eq!(
+        session["last_attached_by"].as_str().unwrap(),
+        "test-device-001",
+        "last_attached_by should match auth device"
+    );
+    assert!(session["last_activity_at"].as_str().is_some(), "last_activity_at should exist");
+
+    // Cleanup
+    drop(send_l);
+    drop(recv_l);
+    let (mut sd, mut rd) = conn.open_bi().await?;
+    send_json(&mut sd, &serde_json::json!({
+        "type": "destroy_session",
+        "request_id": "meta-destroy",
+        "session_id": &session_id,
+    })).await?;
+    let _ = recv_json(&mut rd).await?;
+
+    conn.close(quinn::VarInt::from_u32(0), b"done");
+    Ok(())
+}
+
+#[tokio::test]
+async fn destroy_terminates_process() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    let harness = TestHarness::new().await?;
+    let conn = harness.connect_and_auth().await?;
+
+    // Create session and get a long-running process
+    let (mut send, mut recv) = conn.open_bi().await?;
+    send_json(&mut send, &serde_json::json!({
+        "type": "create_session",
+        "request_id": "proc-create",
+        "rows": 24,
+        "cols": 80,
+    })).await?;
+    let resp = recv_json(&mut recv).await?;
+    let session_id = resp["session_id"].as_str().unwrap().to_string();
+
+    // Start a background process and get its PID
+    let input = Frame::data(1, b"echo $$\n".to_vec());
+    send.write_all(&frame::encode(&input, false)?).await?;
+
+    // Read output to get PID
+    let mut decoder = FrameDecoder::new();
+    let mut output = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if tokio::time::Instant::now() > deadline { break; }
+        let mut buf = [0u8; 4096];
+        match tokio::time::timeout(Duration::from_millis(200), recv.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                decoder.feed(&buf[..n]);
+                while let Some(f) = decoder.decode_next()? {
+                    if f.frame_type == FrameType::Data { output.extend_from_slice(&f.payload); }
+                }
+                // Look for a PID line (digits only)
+                let text = String::from_utf8_lossy(&output);
+                if text.lines().any(|l| l.trim().parse::<u32>().is_ok()) { break; }
+            }
+            _ => continue,
+        }
+    }
+
+    // Detach
+    send.finish()?;
+    drop(send);
+    drop(recv);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Destroy
+    let (mut sd, mut rd) = conn.open_bi().await?;
+    send_json(&mut sd, &serde_json::json!({
+        "type": "destroy_session",
+        "request_id": "proc-destroy",
+        "session_id": &session_id,
+    })).await?;
+    let destroy_resp = recv_json(&mut rd).await?;
+    assert_eq!(destroy_resp["success"], true);
+    drop(sd);
+    drop(rd);
+
+    // Verify session is gone from list
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let (mut sl, mut rl) = conn.open_bi().await?;
+    send_json(&mut sl, &serde_json::json!({
+        "type": "list_sessions",
+        "request_id": "proc-list",
+    })).await?;
+    let list_resp = recv_json(&mut rl).await?;
+    let sessions = list_resp["sessions"].as_array().unwrap();
+    assert!(
+        !sessions.iter().any(|s| s["id"].as_str() == Some(&session_id)),
+        "destroyed session should not appear in list"
+    );
+
+    conn.close(quinn::VarInt::from_u32(0), b"done");
+    Ok(())
+}

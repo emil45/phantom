@@ -304,6 +304,24 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let status = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
         status.isEnabled = false
         sub.addItem(status)
+
+        // Show device that created this session
+        if let deviceId = session.createdByDeviceId {
+            let devices = daemonState.snapshot.devices
+            let deviceName = devices.first(where: { $0.deviceId == deviceId })?.deviceName ?? deviceId
+            let source = NSMenuItem(title: "Created by: \(deviceName)", action: nil, keyEquivalent: "")
+            source.isEnabled = false
+            sub.addItem(source)
+        }
+
+        // Show last activity
+        if let activityStr = session.lastActivityAt, let activity = parseISO8601(activityStr) {
+            let ago = relativeTime(activity)
+            let activityItem = NSMenuItem(title: "Active: \(ago)", action: nil, keyEquivalent: "")
+            activityItem.isEnabled = false
+            sub.addItem(activityItem)
+        }
+
         sub.addItem(.separator())
 
         let copy = NSMenuItem(
@@ -318,7 +336,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         sub.addItem(.separator())
 
         let destroy = NSMenuItem(
-            title: "Destroy Session",
+            title: "End Session",
             action: #selector(destroySession(_:)),
             keyEquivalent: ""
         )
@@ -328,6 +346,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         item.submenu = sub
         return item
+    }
+
+    private func parseISO8601(_ string: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string) ?? {
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: string)
+        }()
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let interval = -date.timeIntervalSinceNow
+        if interval < 60 { return "just now" }
+        if interval < 3600 { return "\(Int(interval / 60))m ago" }
+        if interval < 86400 { return "\(Int(interval / 3600))h ago" }
+        return "\(Int(interval / 86400))d ago"
     }
 
     private func addFooterItems() {
@@ -349,7 +384,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "Quit Phantom",
+            title: "Quit PhantomBar",
             action: #selector(quitApp),
             keyEquivalent: "q"
         )
@@ -435,12 +470,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func quitApp() {
-        Task {
-            if daemonState.snapshot.status.isRunning {
-                await daemonState.stopDaemon()
-            }
-            NSApplication.shared.terminate(nil)
-        }
+        // Quit PhantomBar only — daemon continues running as a LaunchAgent.
+        // Active sessions are daemon-owned and survive the menu bar app quitting.
+        NSApplication.shared.terminate(nil)
     }
 
     // MARK: - NSMenuDelegate

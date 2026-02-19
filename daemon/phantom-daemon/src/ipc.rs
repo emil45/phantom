@@ -217,6 +217,10 @@ impl IpcServer {
                 "created_at": s.created_at.to_rfc3339(),
                 "shell": s.shell,
                 "attached": s.attached,
+                "created_by_device_id": s.created_by_device_id,
+                "last_attached_at": s.last_attached_at.map(|t| t.to_rfc3339()),
+                "last_attached_by": s.last_attached_by,
+                "last_activity_at": s.last_activity_at.to_rfc3339(),
             })
         }).collect();
         Response::ok(id, serde_json::json!(list))
