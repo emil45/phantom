@@ -26,7 +26,7 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 ## Versioning
 
 All version strings must stay in sync when bumping:
-- `scripts/build-release.sh` — `VERSION` variable (source of truth, currently 0.4.0)
+- `scripts/build-release.sh` — `VERSION` variable (source of truth, currently 0.5.0)
 - `macos/PhantomBar/Info.plist` — `CFBundleShortVersionString`
 - `macos/PhantomBar.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
 - `daemon/phantom-daemon/Cargo.toml` — `version` field
@@ -46,3 +46,6 @@ All version strings must stay in sync when bumping:
 - Pairing flow opens in a floating NSPanel, not a sheet on a popover
 - Settings window (⌘,) with General tab (login toggle, config/log paths) and About tab (version, daemon info, cert fingerprint)
 - DeviceRow.swift and SessionRow.swift are dead code (devices/sessions are standard NSMenuItems now)
+- Quitting PhantomBar does NOT stop the daemon — sessions are daemon-owned and survive the menu bar app quitting
+- Destructive actions (remove device, end session) require confirmation dialogs in both macOS and iOS
+- Sessions carry rich metadata: `created_by_device_id`, `last_attached_at`, `last_attached_by`, `last_activity_at`; damaged sessions (unrecoverable PTY reader) are auto-reaped

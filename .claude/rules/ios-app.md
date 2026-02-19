@@ -13,7 +13,7 @@ Terminal-first design: `TerminalScreen` is the root surface when paired. Session
 
 - `PhantomApp.swift` — Entry point. `ReconnectManager` + `TerminalDataSource` are `@StateObject`s here. `RootView` shows `PairingView` (unpaired) or `TerminalScreen` (paired) with auto-create-first-session logic.
 - `Network/QUICClient.swift` — QUIC via NWConnection with cert fingerprint pinning
-- `Network/ReconnectManager.swift` — Central coordinator: connection lifecycle, auth, session CRUD, frame I/O, reconnect with exponential backoff
+- `Network/ReconnectManager.swift` — Central coordinator: connection lifecycle, auth, session CRUD, frame I/O, reconnect with exponential backoff. Monitors network path via `NWPathMonitor` (auto-disconnect on network loss, auto-reconnect on restore). 15s connect timeout. Publishes `authError`, `sessionsLoadedOnce`, `nextRetryDate` for UI
 - `Network/FrameCodec.swift` — Swift port of phantom-frame binary codec
 - `Logging.swift` — `os.Logger` extensions (.quic, .auth, .session, .crypto)
 - `Crypto/KeyManager.swift` — Secure Enclave P256 key (with `.userPresence` biometric on device) + Keychain-backed software fallback (simulator)
@@ -27,7 +27,7 @@ Terminal-first design: `TerminalScreen` is the root surface when paired. Session
 - `Views/TerminalScreen.swift` — Terminal-first root: full-screen terminal with SessionPill overlay, ConnectionOverlay, sessions sheet, swipe-between-sessions gesture
 - `Views/SessionListView.swift` — `SessionsSheet`: bottom sheet with server info, session list, settings navigation
 - `Views/SessionPill.swift` — Compact capsule at top of terminal showing current session + connection status
-- `Views/ConnectionOverlay.swift` — Centered reconnection overlay with pulse animation and "session preserved" messaging
+- `Views/ConnectionOverlay.swift` — Centered reconnection overlay with pulse animation, retry countdown, auth error display. Also contains `SwitchingOverlay` (brief overlay during session switch) and `SessionEndedOverlay` (prompts new session or session list when current session ends)
 - `Views/SettingsView.swift` — Appearance, Connection (with tappable fingerprint), Security (unpair with confirmation), About
 - `Views/QuickKeyToolbar.swift` — Horizontal quick-key row with paste key, centralized haptics
 - `Views/ExtendedKeyPanel.swift` — Segmented key groups (Ctrl/Nav/Brackets/Symbols/Fn) with F1-F12
@@ -44,7 +44,13 @@ Terminal-first design: `TerminalScreen` is the root surface when paired. Session
 - `FrameDecoder` buffer capped at 1MB, keystroke buffer at 10K entries
 - `NWConnection.State` doesn't conform to `CustomStringConvertible` — use `String(describing:)` in os.Logger interpolation
 - `removeDeviceAndDisconnect()` sends `remove_device` RPC then clears local pairing
-- Reconnect backoff includes 30% jitter to prevent thundering herd
+- Reconnect backoff delays: `[0.5, 1, 2, 4, 8, 15, 30, 60]`s with 30% jitter to prevent thundering herd
+- Auth failures do NOT auto-reconnect — user must re-pair or fix the issue
+- Auth challenge responses are validated against expected `request_id`
+- Connect timeout fires after 15s, cancels and schedules reconnect
+- `SessionInfo` is `Decodable` — parsed via `JSONDecoder` (not manual dictionary extraction)
+- Session destroy in `SessionsSheet` shows confirmation alert before proceeding
 - `SessionTabBar.swift` was removed — replaced by `SessionPill` + `SessionsSheet` architecture
+- New session from sessions sheet: detaches current session first, then creates after 0.3s delay (bridge consumes stream)
 - `PhantomColors` is derived from terminal theme and injected via SwiftUI Environment
 - Typography uses Dynamic Type semantic styles (`.headline`, `.subheadline`, `.caption`) with `.rounded` design — never use fixed `size:` for chrome UI text
