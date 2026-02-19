@@ -98,9 +98,18 @@ struct PairingView: View {
                         .background(colors.accent, in: Capsule())
                 }
 
-                Text("Run `phantom pair` on your Mac first")
-                    .font(PhantomFont.captionMono)
-                    .foregroundStyle(colors.textSecondary.opacity(0.6))
+                HStack(spacing: PhantomSpacing.xxs) {
+                    Text("Run")
+                        .foregroundStyle(colors.textSecondary.opacity(0.6))
+                    Text("phantom pair")
+                        .foregroundStyle(colors.textSecondary.opacity(0.8))
+                        .padding(.horizontal, PhantomSpacing.xxs + 2)
+                        .padding(.vertical, 2)
+                        .background(colors.elevated, in: RoundedRectangle(cornerRadius: PhantomRadius.key))
+                    Text("on your Mac first")
+                        .foregroundStyle(colors.textSecondary.opacity(0.6))
+                }
+                .font(PhantomFont.captionMono)
             }
             .padding(.horizontal, PhantomSpacing.safe)
             .padding(.bottom, PhantomSpacing.xl)
@@ -129,10 +138,15 @@ struct PairingView: View {
 
             // Bottom panel
             VStack(spacing: PhantomSpacing.md) {
-                Text("Scan the QR code from `phantom pair`")
-                    .font(PhantomFont.body)
-                    .foregroundStyle(colors.textPrimary)
-                    .multilineTextAlignment(.center)
+                HStack(spacing: PhantomSpacing.xxs) {
+                    Text("Scan the QR code from")
+                    Text("phantom pair")
+                        .padding(.horizontal, PhantomSpacing.xxs + 2)
+                        .padding(.vertical, 2)
+                        .background(colors.elevated, in: RoundedRectangle(cornerRadius: PhantomRadius.key))
+                }
+                .font(PhantomFont.body)
+                .foregroundStyle(colors.textPrimary)
 
                 if let error = errorMessage {
                     Text(error)

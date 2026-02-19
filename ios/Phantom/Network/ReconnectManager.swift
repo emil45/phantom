@@ -14,6 +14,8 @@ final class ReconnectManager: ObservableObject {
     @Published var authError: String?
     /// Set to true after the first listSessions response arrives post-connect.
     @Published var sessionsLoadedOnce: Bool = false
+    /// When the next reconnect attempt will fire (for countdown display).
+    @Published var nextRetryDate: Date?
 
     private var client: QUICClient?
     private var controlStream: NWConnection?
@@ -52,6 +54,7 @@ final class ReconnectManager: ObservableObject {
 
         state = .connecting
         authError = nil
+        nextRetryDate = nil
         frameDecoder = FrameDecoder()
         seqOut = 1
         bytesReceived = 0
@@ -751,6 +754,7 @@ final class ReconnectManager: ObservableObject {
         let jitter = TimeInterval.random(in: 0...(base * 0.3))
         let delay = base + jitter
         reconnectAttempt += 1
+        nextRetryDate = Date().addingTimeInterval(delay)
 
         Task {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))

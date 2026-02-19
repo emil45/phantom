@@ -167,35 +167,51 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func addRunningItems(_ snapshot: DaemonSnapshot) {
-        if !snapshot.devices.isEmpty {
-            if #available(macOS 14.0, *) {
-                menu.addItem(.sectionHeader(title: "Devices"))
-            } else {
-                let header = NSMenuItem(title: "Devices", action: nil, keyEquivalent: "")
-                header.isEnabled = false
-                menu.addItem(header)
-            }
+        // Devices section
+        let deviceCount = snapshot.devices.count
+        let deviceTitle = deviceCount > 0 ? "Devices (\(deviceCount))" : "Devices"
+        if #available(macOS 14.0, *) {
+            menu.addItem(.sectionHeader(title: deviceTitle))
+        } else {
+            let header = NSMenuItem(title: deviceTitle, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+        }
 
+        if snapshot.devices.isEmpty {
+            let empty = NSMenuItem(title: "No devices paired", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            empty.indentationLevel = 1
+            menu.addItem(empty)
+        } else {
             for device in snapshot.devices {
                 menu.addItem(makeDeviceItem(device))
             }
-            menu.addItem(.separator())
+        }
+        menu.addItem(.separator())
+
+        // Sessions section
+        let aliveCount = snapshot.sessions.filter(\.alive).count
+        let sessionTitle = aliveCount > 0 ? "Sessions (\(aliveCount))" : "Sessions"
+        if #available(macOS 14.0, *) {
+            menu.addItem(.sectionHeader(title: sessionTitle))
+        } else {
+            let header = NSMenuItem(title: sessionTitle, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
         }
 
-        if !snapshot.sessions.isEmpty {
-            if #available(macOS 14.0, *) {
-                menu.addItem(.sectionHeader(title: "Sessions"))
-            } else {
-                let header = NSMenuItem(title: "Sessions", action: nil, keyEquivalent: "")
-                header.isEnabled = false
-                menu.addItem(header)
-            }
-
+        if snapshot.sessions.isEmpty {
+            let empty = NSMenuItem(title: "No active sessions", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            empty.indentationLevel = 1
+            menu.addItem(empty)
+        } else {
             for session in snapshot.sessions {
                 menu.addItem(makeSessionItem(session))
             }
-            menu.addItem(.separator())
         }
+        menu.addItem(.separator())
 
         let pairItem = NSMenuItem(
             title: "Pair New Device\u{2026}",
@@ -226,7 +242,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             sub.addItem(status)
             sub.addItem(.separator())
         } else if let lastSeen = device.lastSeen, !lastSeen.isEmpty {
-            let seen = NSMenuItem(title: "Last seen: \(lastSeen)", action: nil, keyEquivalent: "")
+            let displayTime: String
+            if let date = parseISO8601(lastSeen) {
+                displayTime = relativeTime(date)
+            } else {
+                displayTime = lastSeen
+            }
+            let seen = NSMenuItem(title: "Last seen: \(displayTime)", action: nil, keyEquivalent: "")
             seen.isEnabled = false
             sub.addItem(seen)
             sub.addItem(.separator())
@@ -244,7 +266,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         sub.addItem(.separator())
 
         let revoke = NSMenuItem(
-            title: "Revoke Device",
+            title: "Remove Device",
             action: #selector(revokeDevice(_:)),
             keyEquivalent: ""
         )
@@ -290,7 +312,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let config = NSImage.SymbolConfiguration(paletteColors: [symbolColor])
         item.image = NSImage(
             systemSymbolName: "terminal",
-            accessibilityDescription: session.alive ? "Active session" : "Dead session"
+            accessibilityDescription: session.alive ? "Active session" : "Ended session"
         )?.withSymbolConfiguration(config)
 
         if session.attached {
@@ -300,7 +322,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let sub = NSMenu()
 
-        let statusText = session.attached ? "Attached" : (session.alive ? "Idle" : "Dead")
+        let statusText = session.attached ? "Attached" : (session.alive ? "Idle" : "Ended")
         let status = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
         status.isEnabled = false
         sub.addItem(status)
@@ -440,10 +462,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             .first(where: { $0.deviceId == deviceId })?.deviceName ?? deviceId
 
         let alert = NSAlert()
-        alert.messageText = "Revoke \(deviceName)?"
-        alert.informativeText = "This device will need to re-pair via QR code to reconnect."
+        alert.messageText = "Remove \(deviceName)?"
+        alert.informativeText = "This device will need to pair again via QR code to reconnect."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Revoke")
+        alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         daemonState.revokeDevice(deviceId)
@@ -454,7 +476,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let alert = NSAlert()
         alert.messageText = "End this session?"
-        alert.informativeText = "The shell process will be terminated. Any unsaved work will be lost."
+        alert.informativeText = "The terminal session will close. Any unsaved work in the shell will be lost."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "End Session")
         alert.addButton(withTitle: "Cancel")

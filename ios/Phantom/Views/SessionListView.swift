@@ -63,7 +63,7 @@ struct SessionsSheet: View {
                     }
                 }
             } message: {
-                Text("This will terminate the shell process. Any unsaved work will be lost.")
+                Text("The terminal session will close. Any unsaved work in the shell will be lost.")
             }
         }
     }
@@ -194,6 +194,13 @@ struct SessionsSheet: View {
                         .padding(.horizontal, PhantomSpacing.xs)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(colors.accent.opacity(0.12)))
+                } else if !session.alive {
+                    Text("ended")
+                        .font(PhantomFont.caption)
+                        .foregroundStyle(colors.textSecondary)
+                        .padding(.horizontal, PhantomSpacing.xs)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(colors.textSecondary.opacity(0.12)))
                 }
                 Circle()
                     .fill(session.alive ? colors.accent : colors.textSecondary.opacity(0.3))

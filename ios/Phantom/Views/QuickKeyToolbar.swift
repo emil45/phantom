@@ -180,7 +180,7 @@ struct ModifierKeyButton: View {
             )
             .accessibilityLabel("\(label) modifier")
             .accessibilityValue(isActive ? "active" : "inactive")
-            .accessibilityAddTraits(.isToggle)
+            .accessibilityAddTraits(isActive ? .isSelected : [])
             .onTapGesture {
                 PhantomHaptic.modifierToggle()
                 isActive.toggle()

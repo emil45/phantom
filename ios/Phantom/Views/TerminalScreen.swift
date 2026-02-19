@@ -15,6 +15,7 @@ struct TerminalScreen: View {
     @State private var toolbarMode: ToolbarMode = .quickKeys
     @State private var showThemePicker = false
     @State private var showSessionsSheet = false
+    @State private var isSwitchingSessions = false
     @GestureState private var dragOffset: CGFloat = 0
     @Environment(\.phantomColors) private var colors
 
@@ -37,12 +38,30 @@ struct TerminalScreen: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // Connection overlay — centered
-                if !reconnectManager.state.isUsable && reconnectManager.activeSessionId != nil {
+                // Overlays — priority: switching > disconnected > session ended
+                if isSwitchingSessions {
+                    SwitchingOverlay()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
+                } else if !reconnectManager.state.isUsable {
                     ConnectionOverlay(
                         state: reconnectManager.state,
                         isBuffering: reconnectManager.activeSessionId != nil,
-                        authError: reconnectManager.authError
+                        authError: reconnectManager.authError,
+                        nextRetryDate: reconnectManager.nextRetryDate
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } else if reconnectManager.activeSessionId == nil && reconnectManager.sessionsLoadedOnce {
+                    SessionEndedOverlay(
+                        hasOtherSessions: reconnectManager.sessions.contains(where: \.alive),
+                        onNewSession: {
+                            reconnectManager.detachSession()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                reconnectManager.createSession(rows: 24, cols: 80)
+                            }
+                        },
+                        onShowSessions: { showSessionsSheet = true }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
@@ -102,9 +121,11 @@ struct TerminalScreen: View {
 
     private func switchToSession(_ sessionId: String) {
         PhantomHaptic.sessionSwitch()
+        isSwitchingSessions = true
         reconnectManager.detachSession()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             reconnectManager.attachSession(sessionId)
+            isSwitchingSessions = false
 
             // VoiceOver announcement for session switch
             let aliveSessions = reconnectManager.sessions.filter { $0.alive }

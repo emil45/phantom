@@ -16,11 +16,11 @@ enum ConnectionState: Equatable {
     var statusLabel: String {
         switch self {
         case .disconnected: return "Disconnected"
-        case .connecting: return "Connecting..."
-        case .authenticating: return "Authenticating..."
+        case .connecting: return "Connecting\u{2026}"
+        case .authenticating: return "Connecting\u{2026}"
         case .connected: return "Connected"
-        case .backgrounded: return "Backgrounded"
-        case .reconnecting: return "Reconnecting..."
+        case .backgrounded: return "Resuming\u{2026}"
+        case .reconnecting: return "Reconnecting\u{2026}"
         }
     }
 
