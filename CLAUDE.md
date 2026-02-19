@@ -25,13 +25,17 @@ Frame types: Data(0x01), Resize(0x02), Heartbeat(0x03), Close(0x04), Scrollback(
 
 ## Versioning
 
-All version strings must stay in sync when bumping:
-- `scripts/build-release.sh` — `VERSION` variable (source of truth, currently 0.5.0)
+Use `./scripts/bump-version.sh <new-version>` to bump all version strings in one command. It updates 6 files (8 locations), runs validation, and catches stray references. Run with no args to see current version.
+
+Locations managed by the script (source of truth: `scripts/build-release.sh`):
+- `scripts/build-release.sh` — `VERSION` variable (currently 0.5.0)
 - `macos/PhantomBar/Info.plist` — `CFBundleShortVersionString`
 - `macos/PhantomBar.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
 - `daemon/phantom-daemon/Cargo.toml` — `version` field
 - `daemon/phantom-frame/Cargo.toml` — `version` field
-- iOS version is set in `ios/Phantom.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
+- `ios/Phantom.xcodeproj/project.pbxproj` — `MARKETING_VERSION` (Debug + Release)
+
+Never do a blind find-replace of the version string — pbxproj object IDs contain digit sequences that will get corrupted. The bump script uses context-aware patterns per file type.
 
 ## Key Design Decisions
 
