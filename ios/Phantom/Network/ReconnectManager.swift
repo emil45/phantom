@@ -615,33 +615,28 @@ final class ReconnectManager: ObservableObject {
     }
 
     private func processDecodedFrames() {
+        // Batch all decoded frames, dispatch once to MainActor
+        var terminalChunks: [Data] = []
+        var scrollbackChunks: [Data] = []
+        var bytesTracked: UInt64 = 0
+        var gotClose = false
+
         do {
             while let frame = try frameDecoder.decodeNext() {
                 switch frame.type_ {
                 case .data:
-                    let payload = frame.payload
-                    Task { @MainActor in
-                        self.onTerminalData?(payload)
-                    }
-                    trackBytesReceived(UInt64(payload.count))
+                    terminalChunks.append(frame.payload)
+                    bytesTracked += UInt64(frame.payload.count)
 
                 case .scrollback:
-                    let payload = frame.payload
-                    Task { @MainActor in
-                        self.onScrollbackData?(payload)
-                    }
-                    trackBytesReceived(UInt64(payload.count))
+                    scrollbackChunks.append(frame.payload)
+                    bytesTracked += UInt64(frame.payload.count)
 
                 case .heartbeat:
                     break // keepalive handled by QUIC
 
                 case .close:
-                    Logger.quic.info("Server sent Close frame")
-                    Task { @MainActor in
-                        self.activeSessionId = nil
-                        self.dataStream?.cancel()
-                        self.dataStream = nil
-                    }
+                    gotClose = true
 
                 case .resize, .windowUpdate:
                     break // client doesn't process these from server
@@ -649,6 +644,28 @@ final class ReconnectManager: ObservableObject {
             }
         } catch {
             Logger.quic.error("Frame decode error: \(error)")
+        }
+
+        if bytesTracked > 0 {
+            trackBytesReceived(bytesTracked)
+        }
+
+        // Single dispatch for all accumulated frames
+        if !terminalChunks.isEmpty || !scrollbackChunks.isEmpty || gotClose {
+            Task { @MainActor in
+                for chunk in scrollbackChunks {
+                    self.onScrollbackData?(chunk)
+                }
+                for chunk in terminalChunks {
+                    self.onTerminalData?(chunk)
+                }
+                if gotClose {
+                    Logger.quic.info("Server sent Close frame")
+                    self.activeSessionId = nil
+                    self.dataStream?.cancel()
+                    self.dataStream = nil
+                }
+            }
         }
     }
 

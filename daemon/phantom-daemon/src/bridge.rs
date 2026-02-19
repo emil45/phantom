@@ -252,12 +252,12 @@ async fn run_bridge_inner(
     let window_notify = Arc::new(Notify::new());
 
     // PTY → channel (blocking thread)
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(64);
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(128);
     let cancel_read = cancel.clone();
 
     let pty_read_handle = tokio::task::spawn_blocking(move || {
         let mut reader = pty_reader;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 16384];
         loop {
             if cancel_read.is_cancelled() {
                 break;
@@ -291,9 +291,18 @@ async fn run_bridge_inner(
     let cancel_send = cancel.clone();
 
     let send_handle = tokio::spawn(async move {
-        while let Some(data) = rx.recv().await {
+        while let Some(first) = rx.recv().await {
             if cancel_send.is_cancelled() {
                 break;
+            }
+
+            // Coalesce: drain any additional queued data into a single buffer
+            let mut data = first;
+            while let Ok(more) = rx.try_recv() {
+                if data.len() + more.len() > frame::MAX_PAYLOAD {
+                    break;
+                }
+                data.extend_from_slice(&more);
             }
 
             // Append to scrollback
@@ -330,10 +339,12 @@ async fn run_bridge_inner(
                     if send.write_all(&encoded).await.is_err() {
                         break;
                     }
-                    window_for_send.fetch_sub(
-                        wire_payload,
+                    // Saturating subtraction to prevent underflow wrapping
+                    window_for_send.fetch_update(
                         std::sync::atomic::Ordering::Relaxed,
-                    );
+                        std::sync::atomic::Ordering::Relaxed,
+                        |w| Some(w.saturating_sub(wire_payload)),
+                    ).ok();
                 }
                 Err(e) => {
                     error!("frame encode error: {e}");
@@ -352,7 +363,7 @@ async fn run_bridge_inner(
     let recv_handle = tokio::spawn(async move {
         let mut decoder = FrameDecoder::new();
         let mut recv = recv;
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 16384];
 
         loop {
             if cancel_recv.is_cancelled() {

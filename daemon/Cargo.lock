@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "phantom-daemon"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "phantom-frame"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "proptest",
  "thiserror 2.0.18",

@@ -1,165 +1,217 @@
 #!/usr/bin/env python3
-"""Generate the Phantom app icon — dark rounded rect with a ghost/terminal motif."""
+"""Generate the Phantom app icon — bold P monogram with terminal DNA.
 
-from PIL import Image, ImageDraw
+Design: Geometric "P" letterform where the stem doubles as a terminal cursor.
+The bowl has a subtle break at the bottom (the "phantom gap").
+White-to-teal vertical gradient on a deep dark background with soft glow.
+"""
+
+from PIL import Image, ImageDraw, ImageFilter
 import os
 import shutil
+import json
+import math
 
 SIZE = 1024
-# Keep only a small transparent margin so Finder renders the icon at a
-# native-looking size in DMG/Finder icon views.
+RENDER_SCALE = 3  # Supersample at 3072px for crisp anti-aliasing
 PADDING = 28
 CORNER = 220
 
-def rounded_rect_mask(size, radius):
-    """Create an anti-aliased rounded rectangle mask."""
-    # Render at 2x for anti-aliasing
-    scale = 2
-    s = size * scale
-    r = radius * scale
-    mask = Image.new("L", (s, s), 0)
-    d = ImageDraw.Draw(mask)
-    d.rounded_rectangle([0, 0, s - 1, s - 1], radius=r, fill=255)
-    return mask.resize((size, size), Image.LANCZOS)
+# Brand palette
+BG_COLOR = (12, 12, 24)           # #0C0C18 — deep charcoal-blue
+LETTER_TOP = (225, 225, 250)      # Near-white, cool tone
+LETTER_BOT = (0, 210, 155)        # #00D29B — phantom teal
+GLOW_COLOR = (0, 180, 130)        # Teal for ambient glow
+GLOW_BRIGHT = (0, 230, 170)       # Brighter teal for cursor glow
 
 
-def draw_ghost(draw, cx, cy, w, h):
-    """Draw a cute ghost shape — rounded top, wavy bottom."""
-    # Ghost body color
-    ghost_color = (240, 240, 250)
-    ghost_shadow = (200, 200, 220)
+def lerp(a, b, t):
+    """Linear interpolation."""
+    return a + (b - a) * t
 
-    # Body dimensions
-    body_top = cy - h // 2
-    body_bottom = cy + h // 2
-    body_left = cx - w // 2
-    body_right = cx + w // 2
 
-    # Head: ellipse for the rounded top
-    head_h = int(h * 0.55)
-    draw.ellipse(
-        [body_left, body_top, body_right, body_top + head_h * 2],
-        fill=ghost_color,
+def lerp_color(c1, c2, t):
+    """Linear interpolation between two RGB tuples."""
+    return tuple(int(lerp(a, b, t)) for a, b in zip(c1, c2))
+
+
+def generate_icon(output_path, size=SIZE):
+    """Generate the 1024px master icon PNG."""
+    S = size * RENDER_SCALE
+    PAD = PADDING * S // SIZE
+    COR = CORNER * S // SIZE
+    content = S - 2 * PAD
+    cx, cy = S // 2, S // 2
+
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+
+    # ── Background rounded rect ──────────────────────────────────────────
+    bg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(bg).rounded_rectangle(
+        [PAD, PAD, S - PAD, S - PAD], radius=COR, fill=BG_COLOR
     )
-
-    # Body rectangle connecting head to bottom
-    draw.rectangle(
-        [body_left, body_top + head_h, body_right, body_bottom],
-        fill=ghost_color,
-    )
-
-    # Wavy bottom — three "tails"
-    wave_h = int(h * 0.15)
-    num_waves = 3
-    wave_w = w // num_waves
-
-    # Draw the wavy bottom using triangles
-    for i in range(num_waves):
-        x_start = body_left + i * wave_w
-        x_mid = x_start + wave_w // 2
-        x_end = x_start + wave_w
-
-        if i % 2 == 0:
-            # Point down
-            draw.polygon(
-                [(x_start, body_bottom), (x_mid, body_bottom + wave_h), (x_end, body_bottom)],
-                fill=ghost_color,
-            )
-        else:
-            # Cut up (draw background color to create indent)
-            draw.polygon(
-                [(x_start, body_bottom), (x_mid, body_bottom - wave_h), (x_end, body_bottom)],
-                fill=(30, 30, 40),  # background color
-            )
-
-    return body_top, head_h
-
-
-def draw_terminal_face(draw, cx, cy, w, h):
-    """Draw terminal-style 'eyes' on the ghost — a > prompt and cursor."""
-    eye_color = (80, 220, 160)  # Terminal green
-
-    # Left eye: > prompt
-    prompt_x = cx - w // 5
-    prompt_y = cy
-    prompt_size = w // 8
-
-    # Draw > as two lines
-    draw.line(
-        [(prompt_x - prompt_size, prompt_y - prompt_size),
-         (prompt_x, prompt_y)],
-        fill=eye_color, width=max(12, w // 30),
-    )
-    draw.line(
-        [(prompt_x - prompt_size, prompt_y + prompt_size),
-         (prompt_x, prompt_y)],
-        fill=eye_color, width=max(12, w // 30),
-    )
-
-    # Right: cursor block
-    cursor_x = cx + w // 10
-    cursor_w = w // 6
-    cursor_h = int(prompt_size * 1.8)
-    draw.rectangle(
-        [cursor_x, prompt_y - cursor_h // 2, cursor_x + cursor_w, prompt_y + cursor_h // 2],
-        fill=eye_color,
-    )
-
-
-def generate_icon(output_path):
-    """Generate the full icon."""
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-
-    # Background: dark gradient rounded rect
-    bg = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    bg_draw = ImageDraw.Draw(bg)
-
-    # Draw filled rounded rect
-    inset = PADDING
-    bg_draw.rounded_rectangle(
-        [inset, inset, SIZE - inset, SIZE - inset],
-        radius=CORNER,
-        fill=(30, 30, 40),
-    )
-
-    # Add subtle gradient overlay (lighter at top)
-    gradient = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(gradient)
-    for y in range(inset, SIZE - inset):
-        alpha = int(40 * (1 - (y - inset) / (SIZE - 2 * inset)))
-        gd.line([(inset, y), (SIZE - inset, y)], fill=(255, 255, 255, alpha))
-
-    # Mask gradient to rounded rect
-    # Shift mask to account for padding
-    mask_padded = Image.new("L", (SIZE, SIZE), 0)
-    inner_size = SIZE - 2 * inset
-    inner_mask = rounded_rect_mask(inner_size, CORNER)
-    mask_padded.paste(inner_mask, (inset, inset))
-
-    gradient_masked = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    gradient_masked.paste(gradient, mask=mask_padded)
-
     img = Image.alpha_composite(img, bg)
-    img = Image.alpha_composite(img, gradient_masked)
 
-    draw = ImageDraw.Draw(img)
+    # Background mask (reused for clipping layers)
+    bg_mask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(bg_mask).rounded_rectangle(
+        [PAD, PAD, S - PAD, S - PAD], radius=COR, fill=255
+    )
 
-    # Ghost
-    ghost_w = int(SIZE * 0.48)
-    ghost_h = int(SIZE * 0.52)
-    ghost_cx = SIZE // 2
-    ghost_cy = SIZE // 2 + 10
+    # ── Subtle top-light gradient ─────────────────────────────────────────
+    grad = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(grad)
+    for y in range(PAD, S - PAD):
+        t = (y - PAD) / content
+        a = int(20 * (1 - t))
+        gd.line([(PAD, y), (S - PAD, y)], fill=(255, 255, 255, a))
+    grad_clipped = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    grad_clipped.paste(grad, mask=bg_mask)
+    img = Image.alpha_composite(img, grad_clipped)
 
-    draw_ghost(draw, ghost_cx, ghost_cy, ghost_w, ghost_h)
+    # ── Ambient radial glow behind the letter ─────────────────────────────
+    glow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    r_glow = int(content * 0.18)
+    ImageDraw.Draw(glow).ellipse(
+        [cx - r_glow, cy - r_glow, cx + r_glow, cy + r_glow],
+        fill=(*GLOW_COLOR, 60),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=int(content * 0.16)))
+    glow_clipped = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    glow_clipped.paste(glow, mask=bg_mask)
+    img = Image.alpha_composite(img, glow_clipped)
 
-    # Terminal face on the ghost
-    face_cy = ghost_cy - ghost_h // 8
-    draw_terminal_face(draw, ghost_cx, face_cy, ghost_w, ghost_h)
+    # ── Build the P letterform as a mask ──────────────────────────────────
+    # Proportions tuned for bold, geometric feel
+    letter_h = content * 0.54
+    stem_w = content * 0.115
+    bowl_extent = content * 0.27   # how far bowl extends right from stem
+    bowl_h = letter_h * 0.54       # bowl occupies top ~54% of letter
+    bowl_thick = content * 0.095   # wall thickness of the bowl
 
-    # Add subtle glow around the ghost
-    # (skip for now — keep it clean)
+    # Optical centering: shift left slightly to balance the bowl overhang
+    lx = cx - content * 0.045
+    ly = cy
 
-    img.save(output_path, "PNG")
+    letter_top = ly - letter_h / 2
+    letter_bot = ly + letter_h / 2
+    stem_l = lx - stem_w / 2
+    stem_r = lx + stem_w / 2
+
+    # Bowl arc geometry
+    bowl_cx = stem_r
+    bowl_cy = letter_top + bowl_h / 2
+    bowl_outer_rx = bowl_extent
+    bowl_outer_ry = bowl_h / 2
+    bowl_inner_rx = bowl_extent - bowl_thick
+    bowl_inner_ry = bowl_h / 2 - bowl_thick
+
+    # The phantom gap: bowl arc doesn't reach all the way back to the stem
+    arc_start = -90   # degrees — top
+    arc_end = 68      # degrees — stops before closing, leaving a gap
+
+    n_pts = 50  # points per arc for smooth curves
+
+    # Build outer arc points
+    outer_arc = []
+    for i in range(n_pts + 1):
+        t = i / n_pts
+        angle = math.radians(arc_start + t * (arc_end - arc_start))
+        x = bowl_cx + bowl_outer_rx * math.cos(angle)
+        y = bowl_cy + bowl_outer_ry * math.sin(angle)
+        outer_arc.append((x, y))
+
+    # Build inner arc points (reversed for polygon winding)
+    inner_arc = []
+    for i in range(n_pts, -1, -1):
+        t = i / n_pts
+        angle = math.radians(arc_start + t * (arc_end - arc_start))
+        x = bowl_cx + bowl_inner_rx * math.cos(angle)
+        y = bowl_cy + bowl_inner_ry * math.sin(angle)
+        inner_arc.append((x, y))
+
+    crescent_pts = outer_arc + inner_arc
+
+    # Render the letter mask
+    letter_mask = Image.new("L", (S, S), 0)
+    ld = ImageDraw.Draw(letter_mask)
+
+    # Stem: tall vertical rectangle
+    ld.rectangle(
+        [int(stem_l), int(letter_top), int(stem_r), int(letter_bot)],
+        fill=255,
+    )
+
+    # Bowl: thick crescent arc
+    ld.polygon(
+        [tuple(int(c) for c in p) for p in crescent_pts],
+        fill=255,
+    )
+
+    # ── Letter outer glow ─────────────────────────────────────────────────
+    glow_radius = int(content * 0.018)
+    letter_glow_mask = letter_mask.filter(
+        ImageFilter.GaussianBlur(radius=glow_radius)
+    )
+    letter_glow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    letter_glow.paste(
+        Image.new("RGBA", (S, S), (*GLOW_COLOR, 90)),
+        mask=letter_glow_mask,
+    )
+    glow2_clipped = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    glow2_clipped.paste(letter_glow, mask=bg_mask)
+    img = Image.alpha_composite(img, glow2_clipped)
+
+    # ── Gradient-colored letter ───────────────────────────────────────────
+    letter_gradient = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    lgd = ImageDraw.Draw(letter_gradient)
+    for y in range(S):
+        if letter_h > 0:
+            t = max(0.0, min(1.0, (y - letter_top) / letter_h))
+        else:
+            t = 0.0
+        color = lerp_color(LETTER_TOP, LETTER_BOT, t)
+        lgd.line([(0, y), (S, y)], fill=(*color, 245))
+
+    letter_colored = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    letter_colored.paste(letter_gradient, mask=letter_mask)
+    img = Image.alpha_composite(img, letter_colored)
+
+    # ── Bright cursor accent at stem bottom ───────────────────────────────
+    cursor_h = content * 0.032
+    cursor_region = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(cursor_region).rectangle(
+        [int(stem_l), int(letter_bot - cursor_h), int(stem_r), int(letter_bot)],
+        fill=255,
+    )
+    # Combine: only where the stem exists
+    cursor_mask = Image.new("L", (S, S), 0)
+    cursor_mask.paste(cursor_region, mask=letter_mask)
+
+    cursor_glow_img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(cursor_glow_img).rectangle(
+        [int(stem_l - content * 0.01), int(letter_bot - cursor_h - content * 0.01),
+         int(stem_r + content * 0.01), int(letter_bot + content * 0.01)],
+        fill=(*GLOW_BRIGHT, 60),
+    )
+    cursor_glow_img = cursor_glow_img.filter(
+        ImageFilter.GaussianBlur(radius=int(content * 0.015))
+    )
+    cursor_glow_clipped = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    cursor_glow_clipped.paste(cursor_glow_img, mask=bg_mask)
+    img = Image.alpha_composite(img, cursor_glow_clipped)
+
+    # Bright cursor block over the stem bottom
+    cursor_layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    cursor_layer.paste(
+        Image.new("RGBA", (S, S), (*GLOW_BRIGHT, 255)),
+        mask=cursor_mask,
+    )
+    img = Image.alpha_composite(img, cursor_layer)
+
+    # ── Downscale with Lanczos for final output ───────────────────────────
+    final = img.resize((size, size), Image.LANCZOS)
+    final.save(output_path, "PNG")
     print(f"Icon saved: {output_path}")
     return output_path
 
@@ -175,11 +227,9 @@ def create_iconset(png_path, output_dir):
     img = Image.open(png_path)
 
     for size in sizes:
-        # 1x
         resized = img.resize((size, size), Image.LANCZOS)
         resized.save(os.path.join(iconset_dir, f"icon_{size}x{size}.png"))
 
-        # 2x variant (512@2x is the 1024 source image)
         if size == 512:
             img.save(os.path.join(iconset_dir, "icon_512x512@2x.png"))
         else:
@@ -191,15 +241,66 @@ def create_iconset(png_path, output_dir):
 
 
 def create_icns(png_path, icns_path):
-    """Create a multi-size .icns directly with Pillow (no iconutil dependency)."""
+    """Create a multi-size .icns directly with Pillow."""
     img = Image.open(png_path).convert("RGBA")
     img.save(
         icns_path,
         format="ICNS",
-        sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)],
+        sizes=[
+            (16, 16), (32, 32), (64, 64), (128, 128),
+            (256, 256), (512, 512), (1024, 1024),
+        ],
     )
     print(f"ICNS created: {icns_path}")
     return icns_path
+
+
+def create_ios_appiconset(png_path, output_dir):
+    """Create iOS AppIcon.appiconset with a single 1024x1024 universal icon.
+
+    Modern iOS (16+) uses a single 1024x1024 image and auto-generates all sizes.
+    """
+    appiconset_dir = os.path.join(output_dir, "AppIcon.appiconset")
+    os.makedirs(appiconset_dir, exist_ok=True)
+
+    # Copy the 1024px icon
+    dest_png = os.path.join(appiconset_dir, "AppIcon.png")
+    shutil.copy2(png_path, dest_png)
+
+    # Write Contents.json
+    contents = {
+        "images": [
+            {
+                "filename": "AppIcon.png",
+                "idiom": "universal",
+                "platform": "ios",
+                "size": "1024x1024",
+            }
+        ],
+        "info": {"author": "xcode", "version": 1},
+    }
+    with open(os.path.join(appiconset_dir, "Contents.json"), "w") as f:
+        json.dump(contents, f, indent=2)
+        f.write("\n")
+
+    print(f"iOS AppIcon set created: {appiconset_dir}")
+    return appiconset_dir
+
+
+def create_ios_assets_xcassets(project_root, png_path):
+    """Create the full Assets.xcassets structure for the iOS project."""
+    assets_dir = os.path.join(project_root, "ios", "Phantom", "Assets.xcassets")
+    os.makedirs(assets_dir, exist_ok=True)
+
+    # Root Contents.json
+    root_contents = {"info": {"author": "xcode", "version": 1}}
+    with open(os.path.join(assets_dir, "Contents.json"), "w") as f:
+        json.dump(root_contents, f, indent=2)
+        f.write("\n")
+
+    # AppIcon set
+    create_ios_appiconset(png_path, assets_dir)
+    print(f"iOS Assets.xcassets created: {assets_dir}")
 
 
 if __name__ == "__main__":
@@ -207,18 +308,25 @@ if __name__ == "__main__":
     build_dir = os.path.join(project_root, "build")
     os.makedirs(build_dir, exist_ok=True)
 
+    # Generate master 1024px PNG
     png_path = os.path.join(build_dir, "phantom-icon.png")
     generate_icon(png_path)
 
+    # macOS iconset
     create_iconset(png_path, build_dir)
 
-    # Convert to .icns directly
+    # macOS .icns
     icns_path = os.path.join(build_dir, "AppIcon.icns")
     create_icns(png_path, icns_path)
 
-    # Copy to macos resources
+    # Copy to macOS resources
     resources_dir = os.path.join(project_root, "macos", "PhantomBar", "Resources")
     os.makedirs(resources_dir, exist_ok=True)
     dest = os.path.join(resources_dir, "AppIcon.icns")
     shutil.copy2(icns_path, dest)
     print(f"Copied to: {dest}")
+
+    # iOS asset catalog
+    create_ios_assets_xcassets(project_root, png_path)
+
+    print("\nDone! Generated icons for macOS and iOS.")

@@ -857,3 +857,176 @@ async fn destroy_terminates_process() -> Result<()> {
     conn.close(quinn::VarInt::from_u32(0), b"done");
     Ok(())
 }
+
+#[tokio::test]
+async fn keystroke_echo_latency() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    let harness = TestHarness::new().await?;
+    let conn = harness.connect_and_auth().await?;
+
+    // Create session
+    let (mut send, mut recv) = conn.open_bi().await?;
+    send_json(&mut send, &serde_json::json!({
+        "type": "create_session",
+        "request_id": "latency-create",
+        "rows": 24,
+        "cols": 80,
+    })).await?;
+    let resp = recv_json(&mut recv).await?;
+    assert_eq!(resp["type"], "session_created");
+
+    // Wait for shell to start
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Disable echo interference: send stty raw
+    let raw_cmd = Frame::data(1, b"stty raw -echo\n".to_vec());
+    send.write_all(&frame::encode(&raw_cmd, false)?).await?;
+
+    // Drain initial shell output
+    let mut decoder = FrameDecoder::new();
+    let drain_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if tokio::time::Instant::now() > drain_deadline { break; }
+        let mut buf = [0u8; 16384];
+        match tokio::time::timeout(Duration::from_millis(200), recv.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                decoder.feed(&buf[..n]);
+                while decoder.decode_next()?.is_some() {}
+            }
+            _ => break,
+        }
+    }
+
+    // Measure single-character echo latency
+    let samples = 20;
+    let mut latencies = Vec::with_capacity(samples);
+
+    for i in 0..samples {
+        let ch = b'a' + (i as u8 % 26);
+        let input = Frame::data((i + 10) as u64, vec![ch]);
+        let encoded = frame::encode(&input, false)?;
+
+        let start = tokio::time::Instant::now();
+        send.write_all(&encoded).await?;
+
+        // Wait for echo
+        let deadline = start + Duration::from_secs(2);
+        let mut got_echo = false;
+        loop {
+            if tokio::time::Instant::now() > deadline { break; }
+            let mut buf = [0u8; 16384];
+            match tokio::time::timeout(Duration::from_millis(500), recv.read(&mut buf)).await {
+                Ok(Ok(Some(n))) => {
+                    decoder.feed(&buf[..n]);
+                    while let Some(frame) = decoder.decode_next()? {
+                        if frame.frame_type == FrameType::Data && frame.payload.contains(&ch) {
+                            got_echo = true;
+                            break;
+                        }
+                    }
+                    if got_echo { break; }
+                }
+                _ => continue,
+            }
+        }
+
+        if got_echo {
+            let latency = start.elapsed();
+            latencies.push(latency);
+        }
+
+        // Small gap between samples
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    assert!(!latencies.is_empty(), "no echo latency samples collected");
+
+    latencies.sort();
+    let p50 = latencies[latencies.len() / 2];
+    let p95 = latencies[(latencies.len() as f64 * 0.95) as usize];
+    let p99 = latencies[latencies.len() - 1]; // ~p99 for 20 samples
+
+    eprintln!("[latency] keystroke echo (n={}): p50={:?} p95={:?} p99={:?}",
+        latencies.len(), p50, p95, p99);
+
+    // Sanity: p50 should be under 50ms on localhost
+    assert!(p50 < Duration::from_millis(50),
+        "p50 echo latency too high: {:?}", p50);
+
+    send.finish()?;
+    conn.close(quinn::VarInt::from_u32(0), b"done");
+    Ok(())
+}
+
+#[tokio::test]
+async fn sustained_throughput() -> Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .ok();
+
+    let harness = TestHarness::new().await?;
+    let conn = harness.connect_and_auth().await?;
+
+    // Create session
+    let (mut send, mut recv) = conn.open_bi().await?;
+    send_json(&mut send, &serde_json::json!({
+        "type": "create_session",
+        "request_id": "throughput-create",
+        "rows": 24,
+        "cols": 200,
+    })).await?;
+    let resp = recv_json(&mut recv).await?;
+    assert_eq!(resp["type"], "session_created");
+
+    // Wait for shell
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Generate sustained output using yes piped to head (fast, no encoding overhead)
+    let cmd = Frame::data(1, b"yes $(printf '%0200d' 0) | head -c 131072; echo THROUGHPUT_DONE\n".to_vec());
+    send.write_all(&frame::encode(&cmd, false)?).await?;
+
+    // Measure total bytes received until marker
+    let mut decoder = FrameDecoder::new();
+    let mut total_bytes: usize = 0;
+    let start = tokio::time::Instant::now();
+    let deadline = start + Duration::from_secs(10);
+    let mut found_marker = false;
+
+    loop {
+        if tokio::time::Instant::now() > deadline { break; }
+        let mut buf = [0u8; 16384];
+        match tokio::time::timeout(Duration::from_millis(500), recv.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                decoder.feed(&buf[..n]);
+                while let Some(frame) = decoder.decode_next()? {
+                    if frame.frame_type == FrameType::Data {
+                        total_bytes += frame.payload.len();
+                        if frame.payload.windows(15).any(|w| w == b"THROUGHPUT_DONE") {
+                            found_marker = true;
+                            break;
+                        }
+                    }
+                }
+                if found_marker { break; }
+            }
+            _ => continue,
+        }
+    }
+
+    let elapsed = start.elapsed();
+    let throughput_kb = total_bytes as f64 / elapsed.as_secs_f64() / 1024.0;
+
+    eprintln!("[throughput] sustained output: {total_bytes} bytes in {elapsed:?} ({throughput_kb:.0} KB/s)");
+
+    assert!(found_marker, "didn't receive throughput marker (got {total_bytes} bytes)");
+    // Localhost QUIC should exceed 100 KB/s easily
+    assert!(throughput_kb > 100.0,
+        "throughput too low: {throughput_kb:.0} KB/s");
+
+    send.finish()?;
+    conn.close(quinn::VarInt::from_u32(0), b"done");
+    Ok(())
+}

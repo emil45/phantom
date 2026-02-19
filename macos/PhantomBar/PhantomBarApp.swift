@@ -6,6 +6,8 @@ struct PhantomBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
+        // Settings window is opened manually via StatusBarController
+        // to work reliably with LSUIElement agent apps.
         Settings { EmptyView() }
     }
 }
@@ -15,7 +17,7 @@ struct PhantomBarApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController!
-    private let daemonState = DaemonState()
+    let daemonState = DaemonState()
     private let setupManager = SetupManager()
     private var cancellables = Set<AnyCancellable>()
 
@@ -54,7 +56,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let daemonState: DaemonState
     private let setupManager: SetupManager
     private var pairingPanel: NSPanel?
-    private var settingsWindow: NSWindow?
 
     init(daemonState: DaemonState, setupManager: SetupManager) {
         self.daemonState = daemonState
@@ -88,14 +89,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         switch snapshot.status {
         case .running:
             if connected > 0 {
-                description = "Phantom running, \(connected) device\(connected == 1 ? "" : "s") connected"
+                description = "Phantom connected, \(connected) device\(connected == 1 ? "" : "s")"
             } else {
-                description = "Phantom running"
+                description = "Phantom connected"
             }
         case .connecting:
             description = "Phantom connecting"
         case .stopped:
-            description = "Phantom stopped"
+            description = "Phantom not connected"
         case .error:
             description = "Phantom error"
         }
@@ -109,18 +110,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let snapshot = daemonState.snapshot
 
         addStatusHeader(snapshot)
-        menu.addItem(.separator())
 
         switch snapshot.status {
-        case .stopped:
-            addStoppedItems()
+        case .stopped, .connecting:
+            break
         case .error(let msg):
+            menu.addItem(.separator())
             addErrorItems(msg)
-        case .connecting:
-            let item = NSMenuItem(title: "Connecting\u{2026}", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
         case .running:
+            menu.addItem(.separator())
             addRunningItems(snapshot)
         }
 
@@ -130,19 +128,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func addStatusHeader(_ snapshot: DaemonSnapshot) {
         let item = NSMenuItem()
-        let hosting = NSHostingView(rootView: StatusHeaderView(snapshot: snapshot))
+        let view = StatusHeaderView(
+            snapshot: snapshot,
+            isTransitioning: daemonState.isTransitioning,
+            onToggle: { [weak self] wantsRunning in
+                self?.handleToggle(wantsRunning: wantsRunning)
+            }
+        )
+        let hosting = NSHostingView(rootView: view)
         hosting.frame.size = hosting.fittingSize
         item.view = hosting
-        menu.addItem(item)
-    }
-
-    private func addStoppedItems() {
-        let item = NSMenuItem(
-            title: "Start Daemon",
-            action: #selector(startDaemon),
-            keyEquivalent: ""
-        )
-        item.target = self
         menu.addItem(item)
     }
 
@@ -406,7 +401,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "Quit PhantomBar",
+            title: "Quit",
             action: #selector(quitApp),
             keyEquivalent: "q"
         )
@@ -416,8 +411,50 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     // MARK: - Actions
 
-    @objc private func startDaemon() {
-        Task { await daemonState.startDaemon() }
+    private func handleToggle(wantsRunning: Bool) {
+        guard !daemonState.isTransitioning else { return }
+
+        if wantsRunning {
+            // Let the toggle animation play, then dismiss.
+            dismissMenuAfterDelay()
+            Task { await daemonState.startDaemon() }
+            return
+        }
+
+        // Stopping — confirm when there are active sessions or connected devices.
+        let snapshot = daemonState.snapshot
+        let activeSessions = snapshot.sessions.filter(\.alive).count
+        let connectedDevices = snapshot.devices.filter(\.isConnected).count
+
+        if activeSessions > 0 || connectedDevices > 0 {
+            let alert = NSAlert()
+            alert.messageText = "Stop Phantom?"
+            var parts: [String] = []
+            if connectedDevices > 0 {
+                parts.append("\(connectedDevices) connected device\(connectedDevices == 1 ? "" : "s")")
+            }
+            if activeSessions > 0 {
+                parts.append("\(activeSessions) active session\(activeSessions == 1 ? "" : "s")")
+            }
+            alert.informativeText = "This will disconnect \(parts.joined(separator: " and "))."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Stop")
+            alert.addButton(withTitle: "Cancel")
+            // The modal alert implicitly closes the menu.
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        } else {
+            dismissMenuAfterDelay()
+        }
+
+        Task { await daemonState.stopDaemon() }
+    }
+
+    /// Let the toggle animation play (~150ms) then close the menu.
+    /// The menu rebuilds with the correct state on next open.
+    private func dismissMenuAfterDelay() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.menu.cancelTrackingWithoutAnimation()
+        }
     }
 
     @objc private func retryConnection() {
@@ -484,6 +521,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         daemonState.destroySession(sessionId)
     }
 
+    private var settingsWindow: NSWindow?
+
     @objc private func openSettings() {
         if let existing = settingsWindow, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
@@ -491,21 +530,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             return
         }
 
-        let content = SettingsView().environmentObject(daemonState)
-        let hostingView = NSHostingView(rootView: content)
-
         let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: true
         )
         window.title = "Phantom Settings"
-        window.contentView = hostingView
-        window.contentMinSize = NSSize(width: 380, height: 240)
         window.center()
-        window.isReleasedWhenClosed = false
-
+        window.contentView = NSHostingView(
+            rootView: SettingsView().environmentObject(daemonState)
+        )
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow = window

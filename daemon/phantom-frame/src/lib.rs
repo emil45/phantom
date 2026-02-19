@@ -139,29 +139,30 @@ impl Frame {
 
 /// Encode a frame into a byte buffer, optionally compressing the payload.
 pub fn encode(frame: &Frame, compress: bool) -> Result<Vec<u8>, FrameError> {
-    let (payload, flags) = if compress && frame.payload.len() > COMPRESS_THRESHOLD {
-        let compressed = zstd::bulk::compress(&frame.payload, 3)
+    // Try compression; use compressed data only if it's actually smaller
+    let compressed: Option<Vec<u8>> = if compress && frame.payload.len() > COMPRESS_THRESHOLD {
+        let c = zstd::bulk::compress(&frame.payload, 3)
             .map_err(|e| FrameError::Compress(e.to_string()))?;
-        // Only use compressed version if it's actually smaller
-        if compressed.len() < frame.payload.len() {
-            (compressed, FLAG_COMPRESSED)
-        } else {
-            (frame.payload.clone(), 0u16)
-        }
+        if c.len() < frame.payload.len() { Some(c) } else { None }
     } else {
-        (frame.payload.clone(), 0u16)
+        None
     };
 
-    if payload.len() > MAX_PAYLOAD {
-        return Err(FrameError::PayloadTooLarge(payload.len()));
+    let (payload_bytes, flags): (&[u8], u16) = match &compressed {
+        Some(c) => (c.as_slice(), FLAG_COMPRESSED),
+        None => (frame.payload.as_slice(), 0),
+    };
+
+    if payload_bytes.len() > MAX_PAYLOAD {
+        return Err(FrameError::PayloadTooLarge(payload_bytes.len()));
     }
 
-    let mut buf = Vec::with_capacity(HEADER_SIZE + payload.len());
+    let mut buf = Vec::with_capacity(HEADER_SIZE + payload_bytes.len());
     buf.push(frame.frame_type as u8);
-    buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    buf.extend_from_slice(&(payload_bytes.len() as u32).to_be_bytes());
     buf.extend_from_slice(&frame.sequence.to_be_bytes());
     buf.extend_from_slice(&flags.to_be_bytes());
-    buf.extend_from_slice(&payload);
+    buf.extend_from_slice(payload_bytes);
 
     Ok(buf)
 }
@@ -209,26 +210,34 @@ pub fn decode(buf: &[u8]) -> Result<Option<(Frame, usize)>, FrameError> {
 // ── Streaming decoder ────────────────────────────────────────────────────
 
 /// Accumulates bytes and yields complete frames.
+/// Uses an offset-based approach to avoid O(n) drain on every decode.
 pub struct FrameDecoder {
     buf: Vec<u8>,
+    /// Read offset into buf — bytes before this have been consumed
+    offset: usize,
 }
 
 impl FrameDecoder {
     pub fn new() -> Self {
-        Self { buf: Vec::with_capacity(MAX_FRAME) }
+        Self { buf: Vec::with_capacity(MAX_FRAME), offset: 0 }
     }
 
     /// Feed bytes into the decoder.
     pub fn feed(&mut self, data: &[u8]) {
+        // Compact if consumed portion is large (>32KB) to prevent unbounded growth
+        if self.offset > 32768 {
+            self.buf.drain(..self.offset);
+            self.offset = 0;
+        }
         self.buf.extend_from_slice(data);
     }
 
     /// Try to decode the next complete frame.
     /// Returns None if more data is needed.
     pub fn decode_next(&mut self) -> Result<Option<Frame>, FrameError> {
-        match decode(&self.buf)? {
+        match decode(&self.buf[self.offset..])? {
             Some((frame, consumed)) => {
-                self.buf.drain(..consumed);
+                self.offset += consumed;
                 Ok(Some(frame))
             }
             None => Ok(None),
@@ -436,6 +445,52 @@ mod tests {
         let (d2, _) = decode(&encoded_plain).unwrap().unwrap();
         assert_eq!(d1.payload, payload);
         assert_eq!(d2.payload, payload);
+    }
+
+    #[test]
+    fn throughput_encode_decode_4k() {
+        let payload = vec![b'X'; 4096];
+        let frame = Frame::data(1, payload);
+        let iterations = 10_000;
+
+        let start = std::time::Instant::now();
+        for i in 0..iterations {
+            let f = Frame::data(i, frame.payload.clone());
+            let encoded = encode(&f, false).unwrap();
+            let _ = decode(&encoded).unwrap().unwrap();
+        }
+        let elapsed = start.elapsed();
+        let throughput_mb = (iterations as f64 * 4096.0) / elapsed.as_secs_f64() / 1_048_576.0;
+        eprintln!("[bench] encode+decode 4KB x {iterations}: {elapsed:?} ({throughput_mb:.1} MB/s)");
+        assert!(throughput_mb > 100.0, "encode+decode throughput too low: {throughput_mb:.1} MB/s");
+    }
+
+    #[test]
+    fn throughput_streaming_decoder() {
+        // Simulate sustained output: 1000 frames of 4KB fed through streaming decoder
+        let frame_count = 1000;
+        let payload = vec![b'A'; 4096];
+        let mut all_bytes = Vec::new();
+        for i in 0..frame_count {
+            let f = Frame::data(i, payload.clone());
+            all_bytes.extend(encode(&f, false).unwrap());
+        }
+
+        let start = std::time::Instant::now();
+        let mut decoder = FrameDecoder::new();
+        let mut decoded = 0u64;
+        // Feed in 16KB chunks (simulating QUIC recv)
+        for chunk in all_bytes.chunks(16384) {
+            decoder.feed(chunk);
+            while decoder.decode_next().unwrap().is_some() {
+                decoded += 1;
+            }
+        }
+        let elapsed = start.elapsed();
+        assert_eq!(decoded, frame_count);
+        let throughput_mb = (frame_count as f64 * 4096.0) / elapsed.as_secs_f64() / 1_048_576.0;
+        eprintln!("[bench] streaming decode {frame_count} x 4KB: {elapsed:?} ({throughput_mb:.1} MB/s)");
+        assert!(throughput_mb > 200.0, "streaming decode throughput too low: {throughput_mb:.1} MB/s");
     }
 }
 

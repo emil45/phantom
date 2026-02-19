@@ -29,11 +29,13 @@ struct DaemonSnapshot: Equatable {
 @MainActor
 class DaemonState: ObservableObject {
     @Published var snapshot = DaemonSnapshot()
+    @Published private(set) var isTransitioning = false
 
     private let client = DaemonClient()
     private let monitor = DaemonMonitor()
     private var pollingTask: Task<Void, Never>?
     private var currentInterval: Duration?
+    private var isPolling = false
 
     var hasConnectedDevices: Bool {
         snapshot.devices.contains { $0.isConnected }
@@ -70,6 +72,10 @@ class DaemonState: ObservableObject {
     }
 
     private func poll() async {
+        guard !isPolling else { return }
+        isPolling = true
+        defer { isPolling = false }
+
         guard monitor.isDaemonRunning else {
             if snapshot.status != .stopped {
                 snapshot = DaemonSnapshot()
@@ -110,6 +116,8 @@ class DaemonState: ObservableObject {
     // MARK: - Actions
 
     func startDaemon() async {
+        isTransitioning = true
+        defer { isTransitioning = false }
         do {
             try await monitor.startDaemon()
             try? await Task.sleep(for: .seconds(1))
@@ -117,16 +125,29 @@ class DaemonState: ObservableObject {
         } catch {
             snapshot.status = .error(error.localizedDescription)
         }
+        // Always resume background polling — keeps menu bar icon current
+        // whether start succeeded, failed, or menu already closed.
+        startPolling(fast: false)
     }
 
     func stopDaemon() async {
+        isTransitioning = true
+        defer { isTransitioning = false }
+        // Kill polling first so a racing poll() can't overwrite
+        // the stopped state with .connecting / .error.
+        stopPolling()
         do {
             try await monitor.stopDaemon()
-            try? await Task.sleep(for: .milliseconds(500))
-            await poll()
         } catch {
+            // If the daemon is already dead, treat as success.
+            guard monitor.isDaemonRunning else {
+                snapshot = DaemonSnapshot()
+                return
+            }
             snapshot.status = .error(error.localizedDescription)
+            return
         }
+        snapshot = DaemonSnapshot()
     }
 
     func revokeDevice(_ deviceId: String) {

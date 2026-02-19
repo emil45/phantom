@@ -29,18 +29,38 @@ impl ScrollbackBuffer {
     }
 
     /// Append data to the ring buffer, updating the clean point.
+    /// Uses bulk memcpy (at most 2 copies per call) instead of byte-at-a-time.
     pub fn append(&mut self, data: &[u8]) {
-        for &byte in data {
-            self.buf[self.write_pos] = byte;
-            self.write_pos = (self.write_pos + 1) % self.capacity;
-            if self.len < self.capacity {
-                self.len += 1;
-            }
+        if data.is_empty() {
+            return;
         }
-        // Update clean point: scan for ground state.
-        // A simple heuristic: after any byte that isn't part of an escape sequence.
-        // The ground state is when the last byte is not ESC (0x1B) and we're not
-        // inside a CSI sequence (ESC [ ... final_byte).
+
+        let data = if data.len() >= self.capacity {
+            // Data larger than buffer — only keep the last `capacity` bytes
+            let skip = data.len() - self.capacity;
+            self.write_pos = 0;
+            self.len = self.capacity;
+            self.buf.copy_from_slice(&data[skip..]);
+            self.update_clean_point(data);
+            return;
+        } else {
+            data
+        };
+
+        let n = data.len();
+        let first_chunk = (self.capacity - self.write_pos).min(n);
+        self.buf[self.write_pos..self.write_pos + first_chunk]
+            .copy_from_slice(&data[..first_chunk]);
+
+        if first_chunk < n {
+            // Wraps around to start of buffer
+            let second_chunk = n - first_chunk;
+            self.buf[..second_chunk].copy_from_slice(&data[first_chunk..]);
+        }
+
+        self.write_pos = (self.write_pos + n) % self.capacity;
+        self.len = (self.len + n).min(self.capacity);
+
         self.update_clean_point(data);
     }
 
@@ -81,14 +101,13 @@ impl ScrollbackBuffer {
         }
 
         let mut result = Vec::with_capacity(self.len);
-        let read_start = if self.len < self.capacity {
-            0
+        if self.len < self.capacity {
+            // Buffer hasn't wrapped yet — single contiguous copy
+            result.extend_from_slice(&self.buf[..self.len]);
         } else {
-            self.write_pos
-        };
-
-        for i in 0..self.len {
-            result.push(self.buf[(read_start + i) % self.capacity]);
+            // Buffer has wrapped — two slices: [write_pos..capacity] + [0..write_pos]
+            result.extend_from_slice(&self.buf[self.write_pos..]);
+            result.extend_from_slice(&self.buf[..self.write_pos]);
         }
 
         result
@@ -471,5 +490,63 @@ mod tests {
         let data = sb.read_from_clean_point();
         assert_eq!(data.len(), 4);
         assert_eq!(&data, b"DDEE");
+    }
+
+    #[test]
+    fn scrollback_single_byte_appends() {
+        // Verify single-byte appends still work correctly with bulk impl
+        let mut sb = ScrollbackBuffer::new(8);
+        for b in b"ABCDEFGHIJ" {
+            sb.append(std::slice::from_ref(b));
+        }
+        let data = sb.read_from_clean_point();
+        assert_eq!(data.len(), 8);
+        assert_eq!(&data, b"CDEFGHIJ");
+    }
+
+    #[test]
+    fn scrollback_data_larger_than_capacity() {
+        // Data larger than buffer capacity — should keep only last `capacity` bytes
+        let mut sb = ScrollbackBuffer::new(4);
+        sb.append(b"ABCDEFGH");
+        let data = sb.read_from_clean_point();
+        assert_eq!(data.len(), 4);
+        assert_eq!(&data, b"EFGH");
+    }
+
+    #[test]
+    fn throughput_scrollback_append() {
+        let capacity = 65536;
+        let mut sb = ScrollbackBuffer::new(capacity);
+        let chunk = vec![b'X'; 4096];
+        let iterations = 10_000;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            sb.append(&chunk);
+        }
+        let elapsed = start.elapsed();
+        let throughput_mb = (iterations as f64 * 4096.0) / elapsed.as_secs_f64() / 1_048_576.0;
+        eprintln!("[bench] scrollback append 4KB x {iterations}: {elapsed:?} ({throughput_mb:.1} MB/s)");
+        assert!(throughput_mb > 500.0, "scrollback append throughput too low: {throughput_mb:.1} MB/s");
+    }
+
+    #[test]
+    fn throughput_scrollback_read() {
+        let capacity = 65536;
+        let mut sb = ScrollbackBuffer::new(capacity);
+        // Fill the buffer
+        sb.append(&vec![b'Y'; capacity]);
+
+        let iterations = 10_000;
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            let data = sb.read_from_clean_point();
+            assert_eq!(data.len(), capacity);
+        }
+        let elapsed = start.elapsed();
+        let throughput_mb = (iterations as f64 * capacity as f64) / elapsed.as_secs_f64() / 1_048_576.0;
+        eprintln!("[bench] scrollback read 64KB x {iterations}: {elapsed:?} ({throughput_mb:.1} MB/s)");
+        assert!(throughput_mb > 1000.0, "scrollback read throughput too low: {throughput_mb:.1} MB/s");
     }
 }

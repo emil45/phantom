@@ -9,7 +9,7 @@ set -euo pipefail
 #   SIGNING_IDENTITY — Developer ID for codesign (empty = ad-hoc)
 #   NOTARY_PROFILE   — notarytool keychain profile (empty = skip notarization)
 
-VERSION="${VERSION:-0.5.0}"
+VERSION="${VERSION:-0.6.0}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 

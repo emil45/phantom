@@ -155,26 +155,36 @@ func decodeFrame(_ data: Data) throws -> (Frame, Int)? {
 
 class FrameDecoder {
     private var buffer = Data()
+    /// Read offset — bytes before this have been consumed
+    private var offset = 0
     /// Max buffered bytes before dropping data (1MB)
     private let maxBufferSize = 1_048_576
 
     func feed(_ data: Data) {
+        // Compact if consumed portion is large (>32KB) to prevent unbounded growth
+        if offset > 32768 {
+            buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + offset))
+            offset = 0
+        }
         buffer.append(data)
         if buffer.count > maxBufferSize {
             // Drop oldest data to prevent OOM from malicious/corrupt stream
             let excess = buffer.count - maxBufferSize
             buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + excess))
+            offset = 0
         }
     }
 
     func decodeNext() throws -> Frame? {
-        guard let (frame, consumed) = try decodeFrame(buffer) else { return nil }
-        buffer.removeSubrange(buffer.startIndex..<(buffer.startIndex + consumed))
+        let remaining = buffer.subdata(in: (buffer.startIndex + offset)..<buffer.endIndex)
+        guard let (frame, consumed) = try decodeFrame(remaining) else { return nil }
+        offset += consumed
         return frame
     }
 
     func reset() {
         buffer.removeAll()
+        offset = 0
     }
 }
 
