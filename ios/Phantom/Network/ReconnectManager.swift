@@ -10,10 +10,16 @@ final class ReconnectManager: ObservableObject {
     @Published var state: ConnectionState = .disconnected
     @Published var sessions: [SessionInfo] = []
     @Published var activeSessionId: String?
+    /// User-facing auth/pairing error — set on auth failure, cleared on successful connect.
+    @Published var authError: String?
+    /// Set to true after the first listSessions response arrives post-connect.
+    @Published var sessionsLoadedOnce: Bool = false
 
     private var client: QUICClient?
     private var controlStream: NWConnection?
     private var dataStream: NWConnection?
+    private var connectTimeoutTask: Task<Void, Never>?
+    private var pathMonitor: NWPathMonitor?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var keystrokeBuffer: [Data] = []
     private let maxKeystrokeBuffer = 10_000
@@ -45,6 +51,7 @@ final class ReconnectManager: ObservableObject {
         let port = deviceStore.serverPort
 
         state = .connecting
+        authError = nil
         frameDecoder = FrameDecoder()
         seqOut = 1
         bytesReceived = 0
@@ -58,6 +65,8 @@ final class ReconnectManager: ObservableObject {
 
         client.onTunnelReady = { [weak self] in
             Task { @MainActor in
+                self?.connectTimeoutTask?.cancel()
+                self?.connectTimeoutTask = nil
                 self?.onTunnelReady()
             }
         }
@@ -65,12 +74,26 @@ final class ReconnectManager: ObservableObject {
         client.onTunnelFailed = { [weak self] error in
             Task { @MainActor in
                 Logger.quic.error("QUIC tunnel failed: \(String(describing: error))")
+                self?.connectTimeoutTask?.cancel()
+                self?.connectTimeoutTask = nil
                 self?.state = .disconnected
                 self?.scheduleReconnect()
             }
         }
 
         client.connect()
+
+        // Timeout: if not connected within 15s, cancel and retry
+        connectTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard let self = self, self.state == .connecting else { return }
+            Logger.quic.warning("Connection timeout after 15s")
+            self.client?.disconnect()
+            self.client = nil
+            self.state = .disconnected
+            self.scheduleReconnect()
+        }
     }
 
     /// Connect for initial pairing (before server info is persisted).
@@ -175,6 +198,10 @@ final class ReconnectManager: ObservableObject {
         }
 
         if type == "auth_challenge" {
+            guard Self.validateRequestId(json, expected: requestId) else {
+                state = .disconnected
+                return
+            }
             guard let challengeB64 = json["challenge"] as? String,
                   let challengeBytes = Data(base64Encoded: challengeB64) else {
                 state = .disconnected
@@ -249,9 +276,12 @@ final class ReconnectManager: ObservableObject {
         let success = json["success"] as? Bool ?? false
         if success {
             state = .connected
+            authError = nil
             reconnectAttempt = 0
             isBuffering = false
+            sessionsLoadedOnce = false
             replayBufferedKeystrokes()
+            startPathMonitor()
 
             // If we had an active session, reattach; otherwise refresh session list
             if let sessionId = activeSessionId {
@@ -262,7 +292,9 @@ final class ReconnectManager: ObservableObject {
         } else {
             let error = json["error"] as? String ?? "unknown"
             Logger.auth.error("Auth failed: \(error)")
+            authError = error
             state = .disconnected
+            // Don't auto-reconnect on auth failure — user must re-pair or fix the issue
         }
     }
 
@@ -379,6 +411,7 @@ final class ReconnectManager: ObservableObject {
                         if let sessions = try? decoder.decode([SessionInfo].self, from: sessionsData) {
                             Task { @MainActor in
                                 self?.sessions = sessions
+                                self?.sessionsLoadedOnce = true
                             }
                         }
                     }
@@ -713,7 +746,7 @@ final class ReconnectManager: ObservableObject {
         state = .reconnecting
         isBuffering = true
 
-        let delays: [TimeInterval] = [0.5, 1, 2, 4, 8]
+        let delays: [TimeInterval] = [0.5, 1, 2, 4, 8, 15, 30, 60]
         let base = delays[min(reconnectAttempt, delays.count - 1)]
         let jitter = TimeInterval.random(in: 0...(base * 0.3))
         let delay = base + jitter
@@ -753,6 +786,7 @@ final class ReconnectManager: ObservableObject {
     }
 
     func disconnect() {
+        stopPathMonitor()
         dataStream?.cancel()
         dataStream = nil
         controlStream?.cancel()
@@ -762,6 +796,58 @@ final class ReconnectManager: ObservableObject {
         state = .disconnected
         isBuffering = false
         keystrokeBuffer.removeAll()
+        sessionsLoadedOnce = false
         reconnectAttempt = 0
+    }
+
+    // MARK: - NWPathMonitor
+
+    private func startPathMonitor() {
+        stopPathMonitor()
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self = self else { return }
+                if path.status == .unsatisfied {
+                    // Network lost — disconnect proactively
+                    if self.state == .connected || self.state == .backgrounded {
+                        Logger.quic.info("Network path unsatisfied — disconnecting")
+                        self.client?.disconnect()
+                        self.client = nil
+                        self.dataStream = nil
+                        self.controlStream = nil
+                        self.state = .disconnected
+                    }
+                } else if path.status == .satisfied && self.state == .disconnected {
+                    // Network restored — reconnect
+                    Logger.quic.info("Network path satisfied — reconnecting")
+                    self.reconnectAttempt = 0
+                    self.connect()
+                }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "phantom.pathmonitor"))
+    }
+
+    private func stopPathMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    // MARK: - Request ID Validation
+
+    /// Validates that a response JSON contains a matching request_id.
+    /// Returns true if valid, false if mismatched.
+    static func validateRequestId(_ json: [String: Any], expected: String) -> Bool {
+        guard let responseId = json["request_id"] as? String else {
+            Logger.quic.warning("Response missing request_id (expected \(expected))")
+            return false
+        }
+        if responseId != expected {
+            Logger.quic.warning("request_id mismatch: expected \(expected), got \(responseId)")
+            return false
+        }
+        return true
     }
 }

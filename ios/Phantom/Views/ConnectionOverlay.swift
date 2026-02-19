@@ -5,6 +5,7 @@ import SwiftUI
 struct ConnectionOverlay: View {
     let state: ConnectionState
     let isBuffering: Bool
+    var authError: String? = nil
     @Environment(\.phantomColors) private var colors
     @State private var pulse = false
 
@@ -46,9 +47,15 @@ struct ConnectionOverlay: View {
                 }
 
                 if state == .disconnected {
-                    Text("Check your network connection")
-                        .font(PhantomFont.caption)
-                        .foregroundStyle(colors.textSecondary)
+                    if let authError = authError {
+                        Text("Auth failed: \(authError)")
+                            .font(PhantomFont.caption)
+                            .foregroundStyle(colors.statusError)
+                    } else {
+                        Text("Check your network connection")
+                            .font(PhantomFont.caption)
+                            .foregroundStyle(colors.textSecondary)
+                    }
                 }
             }
         }

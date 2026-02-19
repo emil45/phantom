@@ -37,12 +37,13 @@ final class QUICClient {
         sec_protocol_options_set_verify_block(
             options.securityProtocolOptions,
             { metadata, trust, complete in
-                if let fp = expectedFingerprint {
-                    let valid = QUICClient.verifyCertFingerprint(trust: trust, expected: fp)
-                    complete(valid)
-                } else {
-                    complete(true)
+                guard let fp = expectedFingerprint, !fp.isEmpty else {
+                    Logger.quic.error("No fingerprint configured — rejecting connection")
+                    complete(false)
+                    return
                 }
+                let valid = QUICClient.verifyCertFingerprint(trust: trust, expected: fp)
+                complete(valid)
             },
             queue
         )

@@ -71,9 +71,12 @@ impl Authenticator {
 
         let device_id = req.device_id.clone();
 
-        // Validate device_id format (prevent oversized or empty IDs)
+        // Validate device_id format (alphanumeric, hyphens, underscores only)
         if device_id.is_empty() || device_id.len() > 128 {
             bail!("invalid device_id length: {}", device_id.len());
+        }
+        if !device_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            bail!("invalid device_id characters");
         }
 
         // Check if this is a pairing request (has pairing_token + public_key)

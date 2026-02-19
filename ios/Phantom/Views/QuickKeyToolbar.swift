@@ -62,6 +62,7 @@ struct QuickKeyToolbar: View {
                         .foregroundStyle(colors.textSecondary)
                         .frame(width: 44, height: 40)
                 }
+                .accessibilityLabel("Show extended keyboard")
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: PhantomSpacing.xs) {
@@ -126,6 +127,8 @@ struct QuickKeyButton: View {
                 RoundedRectangle(cornerRadius: PhantomRadius.key)
                     .fill(isPressed ? colors.accent.opacity(0.15) : colors.elevated)
             )
+            .accessibilityLabel(accessibilityName(for: key.label))
+            .accessibilityAddTraits(.isKeyboardKey)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
@@ -138,6 +141,20 @@ struct QuickKeyButton: View {
                         withAnimation(.subtle) { isPressed = false }
                     }
             )
+    }
+
+    private func accessibilityName(for label: String) -> String {
+        switch label {
+        case "esc": return "Escape"
+        case "tab": return "Tab"
+        case "^C": return "Control C, interrupt"
+        case "|": return "Pipe"
+        case "/": return "Slash"
+        case "~": return "Tilde"
+        case "-": return "Dash"
+        case "?": return "Question mark"
+        default: return label
+        }
     }
 }
 
@@ -161,6 +178,9 @@ struct ModifierKeyButton: View {
                 RoundedRectangle(cornerRadius: PhantomRadius.key)
                     .fill(isActive ? colors.accent : colors.elevated)
             )
+            .accessibilityLabel("\(label) modifier")
+            .accessibilityValue(isActive ? "active" : "inactive")
+            .accessibilityAddTraits(.isToggle)
             .onTapGesture {
                 PhantomHaptic.modifierToggle()
                 isActive.toggle()
@@ -187,6 +207,8 @@ struct PasteKeyButton: View {
                 RoundedRectangle(cornerRadius: PhantomRadius.key)
                     .fill(isPressed ? colors.accent.opacity(0.15) : colors.elevated)
             )
+            .accessibilityLabel("Paste from clipboard")
+            .accessibilityAddTraits(.isKeyboardKey)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in

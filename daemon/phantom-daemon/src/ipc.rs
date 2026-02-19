@@ -16,6 +16,8 @@ const MAX_CONNECTIONS: usize = 5;
 const MAX_LINE_LENGTH: usize = 65536;
 /// Maximum length for ID parameters.
 const MAX_ID_LENGTH: usize = 128;
+/// Maximum requests per second per IPC connection.
+const MAX_REQUESTS_PER_SEC: u32 = 20;
 
 #[derive(Debug, Deserialize)]
 struct Request {
@@ -141,8 +143,25 @@ impl IpcServer {
     async fn handle_client(&self, stream: tokio::net::UnixStream) -> Result<()> {
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
+        let mut window_start = tokio::time::Instant::now();
+        let mut request_count: u32 = 0;
 
         while let Some(line) = lines.next_line().await? {
+            // Per-connection rate limiting
+            let now = tokio::time::Instant::now();
+            if now.duration_since(window_start) >= std::time::Duration::from_secs(1) {
+                request_count = 0;
+                window_start = now;
+            }
+            request_count += 1;
+            if request_count > MAX_REQUESTS_PER_SEC {
+                let resp = Response::err(0, "rate limit exceeded");
+                let mut out = serde_json::to_vec(&resp)?;
+                out.push(b'\n');
+                writer.write_all(&out).await?;
+                continue;
+            }
+
             if line.len() > MAX_LINE_LENGTH {
                 let resp = Response::err(0, "request too large");
                 let mut out = serde_json::to_vec(&resp)?;

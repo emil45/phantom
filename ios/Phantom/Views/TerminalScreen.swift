@@ -41,7 +41,8 @@ struct TerminalScreen: View {
                 if !reconnectManager.state.isUsable && reconnectManager.activeSessionId != nil {
                     ConnectionOverlay(
                         state: reconnectManager.state,
-                        isBuffering: reconnectManager.activeSessionId != nil
+                        isBuffering: reconnectManager.activeSessionId != nil,
+                        authError: reconnectManager.authError
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
@@ -104,6 +105,13 @@ struct TerminalScreen: View {
         reconnectManager.detachSession()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             reconnectManager.attachSession(sessionId)
+
+            // VoiceOver announcement for session switch
+            let aliveSessions = reconnectManager.sessions.filter { $0.alive }
+            if let index = aliveSessions.firstIndex(where: { $0.id == sessionId }) {
+                let announcement = "Session \(index + 1) of \(aliveSessions.count)"
+                UIAccessibility.post(notification: .announcement, argument: announcement)
+            }
         }
     }
 

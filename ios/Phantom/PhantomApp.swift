@@ -46,26 +46,22 @@ struct RootView: View {
                     reconnectManager.connect()
                 }
             }
-            .onChange(of: reconnectManager.state) { newState in
-                autoCreateFirstSession(state: newState)
+            .onChange(of: reconnectManager.sessionsLoadedOnce) { loaded in
+                guard loaded else { return }
+                autoCreateFirstSession()
             }
         } else {
             PairingView(reconnectManager: reconnectManager)
         }
     }
 
-    /// Auto-create a session when connected with no sessions.
-    private func autoCreateFirstSession(state: ConnectionState) {
-        guard state == .connected,
-              !hasAutoCreated,
+    /// Auto-create a session when connected with no existing sessions.
+    /// Triggered by sessionsLoadedOnce — no timing race possible.
+    private func autoCreateFirstSession() {
+        guard !hasAutoCreated,
               reconnectManager.sessions.isEmpty,
               reconnectManager.activeSessionId == nil else { return }
         hasAutoCreated = true
-        // Brief delay to let session list load
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if reconnectManager.sessions.isEmpty && reconnectManager.activeSessionId == nil {
-                reconnectManager.createSession(rows: 24, cols: 80)
-            }
-        }
+        reconnectManager.createSession(rows: 24, cols: 80)
     }
 }

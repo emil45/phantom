@@ -228,7 +228,8 @@ async fn run_bridge(
                     s.reader = Some(reader);
                 }
                 Err(e) => {
-                    warn!("failed to clone PTY reader on detach: {e}");
+                    warn!("failed to clone PTY reader on detach, marking session damaged: {e}");
+                    s.damaged = true;
                 }
             }
         }
@@ -325,11 +326,12 @@ async fn run_bridge_inner(
 
             match frame::encode(&frame, compress) {
                 Ok(encoded) => {
+                    let wire_payload = encoded.len().saturating_sub(15) as u64; // 15 = frame header
                     if send.write_all(&encoded).await.is_err() {
                         break;
                     }
                     window_for_send.fetch_sub(
-                        frame.payload.len() as u64,
+                        wire_payload,
                         std::sync::atomic::Ordering::Relaxed,
                     );
                 }

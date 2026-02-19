@@ -82,7 +82,7 @@ async fn run_daemon(bind: std::net::SocketAddr, phantom_dir: &std::path::Path, c
         warn!("no paired devices — run `phantom pair` to pair a device");
     }
 
-    let session_manager = Arc::new(session::SessionManager::new());
+    let session_manager = Arc::new(session::SessionManager::with_scrollback(config.session.scrollback_bytes));
 
     // Start the session reaper
     let cancel = CancellationToken::new();

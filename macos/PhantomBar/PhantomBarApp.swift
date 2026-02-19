@@ -436,11 +436,29 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func revokeDevice(_ sender: NSMenuItem) {
         guard let deviceId = sender.representedObject as? String else { return }
+        let deviceName = daemonState.snapshot.devices
+            .first(where: { $0.deviceId == deviceId })?.deviceName ?? deviceId
+
+        let alert = NSAlert()
+        alert.messageText = "Revoke \(deviceName)?"
+        alert.informativeText = "This device will need to re-pair via QR code to reconnect."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Revoke")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         daemonState.revokeDevice(deviceId)
     }
 
     @objc private func destroySession(_ sender: NSMenuItem) {
         guard let sessionId = sender.representedObject as? String else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "End this session?"
+        alert.informativeText = "The shell process will be terminated. Any unsaved work will be lost."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "End Session")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         daemonState.destroySession(sessionId)
     }
 
@@ -451,18 +469,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             return
         }
 
+        let content = SettingsView().environmentObject(daemonState)
+        let hostingView = NSHostingView(rootView: content)
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: true
         )
         window.title = "Phantom Settings"
+        window.contentView = hostingView
+        window.contentMinSize = NSSize(width: 380, height: 240)
         window.center()
         window.isReleasedWhenClosed = false
-
-        let content = SettingsView().environmentObject(daemonState)
-        window.contentView = NSHostingView(rootView: content)
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

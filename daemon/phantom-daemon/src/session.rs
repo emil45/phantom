@@ -107,6 +107,8 @@ pub struct PtySession {
     pub shell: String,
     /// Set when a client is attached
     pub attached: bool,
+    /// Set when PTY reader cannot be recovered after detach — session is unusable
+    pub damaged: bool,
     /// Cancellation token for the current bridge tasks
     pub bridge_cancel: Option<CancellationToken>,
     /// Device that created this session
@@ -120,7 +122,7 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    pub fn spawn(id: String, rows: u16, cols: u16, device_id: Option<&str>) -> Result<Self> {
+    pub fn spawn(id: String, rows: u16, cols: u16, device_id: Option<&str>, scrollback_bytes: usize) -> Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -149,10 +151,11 @@ impl PtySession {
             writer: Arc::new(Mutex::new(writer)),
             child,
             master: pair.master,
-            scrollback: Arc::new(Mutex::new(ScrollbackBuffer::new(65536))),
+            scrollback: Arc::new(Mutex::new(ScrollbackBuffer::new(scrollback_bytes))),
             created_at: now,
             shell,
             attached: false,
+            damaged: false,
             bridge_cancel: None,
             created_by_device_id: device_id.map(|s| s.to_string()),
             last_attached_at: None,
@@ -183,13 +186,19 @@ pub struct SessionManager {
     sessions: Mutex<HashMap<String, Arc<Mutex<PtySession>>>>,
     /// device_id → active quinn::Connection
     connections: Mutex<HashMap<String, quinn::Connection>>,
+    scrollback_bytes: usize,
 }
 
 impl SessionManager {
     pub fn new() -> Self {
+        Self::with_scrollback(65536)
+    }
+
+    pub fn with_scrollback(scrollback_bytes: usize) -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
             connections: Mutex::new(HashMap::new()),
+            scrollback_bytes,
         }
     }
 
@@ -200,7 +209,7 @@ impl SessionManager {
         device_id: Option<&str>,
     ) -> Result<String> {
         let id = uuid_short();
-        let session = PtySession::spawn(id.clone(), rows, cols, device_id)
+        let session = PtySession::spawn(id.clone(), rows, cols, device_id, self.scrollback_bytes)
             .context("spawn session")?;
 
         self.sessions
@@ -224,10 +233,11 @@ impl SessionManager {
                 let mut s = s.lock().expect("session lock");
                 SessionInfo {
                     id: s.id.clone(),
-                    alive: matches!(s.child.try_wait(), Ok(None)),
+                    alive: matches!(s.child.try_wait(), Ok(None)) && !s.damaged,
                     created_at: s.created_at,
                     shell: s.shell.clone(),
                     attached: s.attached,
+                    damaged: s.damaged,
                     created_by_device_id: s.created_by_device_id.clone(),
                     last_attached_at: s.last_attached_at,
                     last_attached_by: s.last_attached_by.clone(),
@@ -348,7 +358,17 @@ impl SessionManager {
                             drop(s);
                             self.sessions.lock().expect("sessions lock").remove(&id);
                         }
-                        Ok(None) => {} // still running
+                        Ok(None) => {
+                            // Reap damaged sessions (PTY reader unrecoverable)
+                            if s.damaged && !s.attached {
+                                info!("reaping damaged session {id}");
+                                if let Some(cancel) = s.bridge_cancel.take() {
+                                    cancel.cancel();
+                                }
+                                drop(s);
+                                self.sessions.lock().expect("sessions lock").remove(&id);
+                            }
+                        }
                         Err(e) => {
                             warn!("session {id} try_wait error: {e}");
                         }
@@ -366,6 +386,8 @@ pub struct SessionInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub shell: String,
     pub attached: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub damaged: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_device_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
